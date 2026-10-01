@@ -1,0 +1,1368 @@
+import crypto from "crypto";
+import nodemailer from "nodemailer";
+import bcrypt from "bcryptjs";
+import ms from "ms";
+import { OAuth2Client } from "google-auth-library";
+import { FoodUser } from "../users/user.model.js";
+import { FoodAdmin } from "../admin/admin.model.js";
+import { AdminResetOtp } from "../admin/adminResetOtp.model.js";
+import { FoodRestaurant } from "../../modules/food/restaurant/models/restaurant.model.js";
+import { FoodReferralSettings } from "../../modules/food/admin/models/referralSettings.model.js";
+import { FoodReferralLog } from "../../modules/food/admin/models/referralLog.model.js";
+import { createOrUpdateOtp, verifyOtp, sendOrderSms } from "../otp/otp.service.js";
+import { signAccessToken, signRefreshToken } from "./token.util.js";
+import { FoodRefreshToken } from "../refreshTokens/refreshToken.model.js";
+import { ValidationError, AuthError } from "./errors.js";
+import { config } from "../../config/env.js";
+import { logger } from "../../utils/logger.js";
+import { sendAdminResetOtpEmail } from "../../utils/email.js";
+import mongoose from "mongoose";
+import { creditReferralReward } from "../../modules/food/user/services/userWallet.service.js";
+import { FoodUserWallet } from "../../modules/food/user/models/userWallet.model.js";
+import { FoodOrder } from "../../modules/food/orders/models/order.model.js";
+import { FoodTransaction } from "../../modules/food/orders/models/foodTransaction.model.js";
+import { FoodSupportTicket } from "../../modules/food/user/models/supportTicket.model.js";
+import { FoodRestaurantMenu } from "../../modules/food/restaurant/models/restaurantMenu.model.js";
+import { FoodRestaurantWallet } from "../../modules/food/restaurant/models/restaurantWallet.model.js";
+import { FoodRestaurantWithdrawal } from "../../modules/food/restaurant/models/foodRestaurantWithdrawal.model.js";
+import { FoodAddon } from "../../modules/food/restaurant/models/foodAddon.model.js";
+import { FoodRestaurantOutletTimings } from "../../modules/food/restaurant/models/outletTimings.model.js";
+import { FoodRestaurantSupportTicket } from "../../modules/food/restaurant/models/supportTicket.model.js";
+
+const ROLES = {
+  USER: "USER",
+  RESTAURANT: "RESTAURANT",
+  ADMIN: "ADMIN",
+};
+
+const toSafeImageUrl = (value) => {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object") return value.url || value.secure_url || "";
+  return "";
+};
+
+const sanitizeUserForAuthResponse = (userDoc = {}) => {
+  const id = userDoc?._id?.toString?.() || userDoc?.id?.toString?.() || userDoc?._id || userDoc?.id || null;
+  return {
+    id,
+    _id: id,
+    name: userDoc?.name || "",
+    phone: userDoc?.phone || "",
+    email: userDoc?.email || "",
+    role: userDoc?.role || ROLES.USER,
+    isVerified: Boolean(userDoc?.isVerified),
+    isActive: userDoc?.isActive !== false,
+    profileImage: toSafeImageUrl(userDoc?.profileImage),
+    gender: userDoc?.gender || null,
+    referralCode: userDoc?.referralCode || "",
+    refCode: userDoc?.referralCode || "",
+    referralCount: Number(userDoc?.referralCount || 0),
+    walletAmount: Number(userDoc?.walletAmount || 0),
+  };
+};
+
+const sanitizeRestaurantForAuthResponse = (restaurantDoc = {}) => {
+  const id =
+    restaurantDoc?._id?.toString?.() ||
+    restaurantDoc?.id?.toString?.() ||
+    restaurantDoc?._id ||
+    restaurantDoc?.id ||
+    null;
+
+  return {
+    id,
+    _id: id,
+    name: restaurantDoc?.restaurantName || restaurantDoc?.name || "",
+    restaurantName: restaurantDoc?.restaurantName || "",
+    phone: restaurantDoc?.ownerPhone || restaurantDoc?.primaryContactNumber || "",
+    email: restaurantDoc?.ownerEmail || "",
+    status: restaurantDoc?.status || "",
+    profileImage: toSafeImageUrl(restaurantDoc?.profileImage),
+  };
+};
+
+export const requestUserOtp = async (phone) => {
+  if (!phone) {
+    throw new ValidationError("Phone is required");
+  }
+
+  const otp = await createOrUpdateOtp(phone);
+  // TODO: integrate SMS provider here
+  const shouldExposeOtp =
+    config.nodeEnv !== "production" || config.useDefaultOtp;
+  return shouldExposeOtp ? { otp } : {};
+};
+export const verifyUserOtpAndLogin = async (
+  phone,
+  otp,
+  ref = null,
+  fcmToken = null,
+  platform = "web",
+  name = null,
+  confirmAction = null,
+) => {
+  const trimmedName = typeof name === "string" ? name.trim() : "";
+  const existingUser = await FoodUser.findOne({ phone });
+  
+  // Decide if we should preserve the OTP record for a subsequent Restore/New action
+  const isDeletedAccount = existingUser && existingUser.isActive === false;
+  
+  // For first-time signup or fresh start after deletion, require name before logging in
+  const isFreshRegistration = !existingUser || confirmAction === "new";
+  
+  // Preserve OTP if:
+  // 1. It is a deleted account and the user hasn't chosen restore/new yet.
+  // 2. It is a fresh registration and they haven't provided a name yet (needs name prompt).
+  const preserveOtp = (isDeletedAccount && !confirmAction) || (isFreshRegistration && !trimmedName);
+
+  const result = await verifyOtp(phone, otp, preserveOtp);
+  console.log(`[DEBUG] OTP Verification for ${phone}: valid=${result.valid}, reason=${result.reason}, preserve=${preserveOtp}, confirmAction=${confirmAction}`);
+
+  if (!result.valid) {
+    throw new AuthError(result.reason || "OTP verification failed");
+  }
+
+  if (isFreshRegistration && !trimmedName) {
+    // Return a success response with a flag instead of throwing an error 
+    // to avoid noisy 400 errors in the console.
+    return { needsName: true };
+  }
+
+  let userDoc = existingUser;
+  
+  // Ensure user exists and mark as verified on successful OTP.
+  // Check if user is new or hasn't provided a name yet
+  const needsNamePrompt = !userDoc || !userDoc.name || String(userDoc.name).trim() === "" || String(userDoc.name).toLowerCase() === "null";
+  const isNewUser = needsNamePrompt;
+
+  // Handle soft-deleted accounts if found
+  if (userDoc && userDoc.isActive === false) {
+    if (!confirmAction) {
+      // Return a flag to frontend to prompt for choice
+      return {
+        deletedAccountFound: true,
+        phone,
+        role: ROLES.USER,
+        name: userDoc.name
+      };
+    }
+
+    if (confirmAction === "restore") {
+      // Restore the account
+      userDoc.isActive = true;
+      await userDoc.save();
+      logger.info({ userId: userDoc._id }, "User account restored successfully");
+    } else if (confirmAction === "new") {
+      // Rename old account to free up phone number
+      const oldPhone = userDoc.phone;
+      userDoc.phone = `${oldPhone}_deleted_${Date.now()}`;
+      await userDoc.save();
+      logger.info({ userId: userDoc._id }, "Old user account renamed for fresh start");
+      
+      // Create a brand new account
+      userDoc = await FoodUser.create({
+        phone: oldPhone,
+        isVerified: true,
+        name: trimmedName,
+      });
+    }
+  }
+
+  if (!userDoc) {
+    userDoc = await FoodUser.create({
+      phone,
+      isVerified: true,
+      name: trimmedName,
+    });
+  } else {
+    let needsSave = false;
+    if (!userDoc.isVerified) {
+      userDoc.isVerified = true;
+      needsSave = true;
+    }
+    if (trimmedName && !userDoc.name) {
+      userDoc.name = trimmedName;
+      needsSave = true;
+    }
+    if (needsSave) await userDoc.save();
+  }
+
+  // Block login for deactivated users
+  if (userDoc.isActive === false) {
+    throw new AuthError(
+      "Your account has been deactivated. Please contact support.",
+    );
+  }
+
+  // Update FCM token if provided
+  if (fcmToken) {
+    let isModified = false;
+    if (platform === "mobile") {
+      if (!userDoc.fcmTokenMobile) userDoc.fcmTokenMobile = [];
+      if (!userDoc.fcmTokenMobile.includes(fcmToken)) {
+        userDoc.fcmTokenMobile.push(fcmToken);
+        isModified = true;
+      }
+    } else {
+      // Default to web if not explicitly mobile
+      if (!userDoc.fcmTokens) userDoc.fcmTokens = [];
+      if (!userDoc.fcmTokens.includes(fcmToken)) {
+        userDoc.fcmTokens.push(fcmToken);
+        isModified = true;
+      }
+    }
+    if (isModified) {
+      await userDoc.save();
+    }
+  }
+
+  // Ensure referralCode exists (used for share links on older accounts).
+  if (!userDoc.referralCode) {
+    userDoc.referralCode = String(userDoc._id);
+    await userDoc.save();
+  }
+
+  // Referral crediting: only for brand new accounts.
+  const refRaw = typeof ref === "string" ? String(ref).trim() : "";
+  if (isNewUser && refRaw) {
+    try {
+      if (mongoose.Types.ObjectId.isValid(refRaw)) {
+        const referrerId = new mongoose.Types.ObjectId(refRaw);
+        if (String(referrerId) !== String(userDoc._id)) {
+          const [referrer, settingsDoc] = await Promise.all([
+            FoodUser.findById(referrerId).select("_id referralCount").lean(),
+            FoodReferralSettings.findOne({ isActive: true })
+              .sort({ createdAt: -1 })
+              .lean(),
+          ]);
+
+          if (referrer && settingsDoc) {
+            const reward = Math.max(
+              0,
+              Number(settingsDoc.referralRewardUser) || 0,
+            );
+            const limit = Math.max(
+              0,
+              Number(settingsDoc.referralLimitUser) || 0,
+            );
+
+            if (
+              reward > 0 &&
+              limit > 0 &&
+              Number(referrer.referralCount || 0) < limit
+            ) {
+              userDoc.referredBy = referrerId;
+              await userDoc.save();
+
+              const log = await FoodReferralLog.create({
+                referrerId,
+                refereeId: userDoc._id,
+                role: "USER",
+                rewardAmount: reward,
+                status: "credited",
+              });
+
+              await Promise.all([
+                FoodUser.updateOne(
+                  { _id: referrerId },
+                  { $inc: { referralCount: 1 } },
+                ),
+                creditReferralReward(referrerId, reward, {
+                  role: "USER",
+                  refereeId: String(userDoc._id),
+                  referralLogId: String(log._id),
+                }),
+              ]);
+            } else {
+              await FoodReferralLog.create({
+                referrerId,
+                refereeId: userDoc._id,
+                role: "USER",
+                rewardAmount: reward,
+                status: "rejected",
+                reason:
+                  reward <= 0
+                    ? "reward_disabled"
+                    : limit <= 0
+                      ? "limit_disabled"
+                      : "limit_reached",
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // Never fail login due to referral errors.
+      logger?.warn?.({ err: e }, "Referral crediting failed (user)");
+    }
+  }
+
+  const user = userDoc.toObject();
+  const payload = { userId: user._id.toString(), role: user.role || "USER" };
+
+  const accessToken = signAccessToken(payload);
+  const refreshToken = signRefreshToken(payload);
+
+  const ttlMs = ms(config.jwtRefreshExpiresIn || "7d");
+  const expiresAt = new Date(Date.now() + ttlMs);
+
+  await FoodRefreshToken.create({
+    userId: user._id,
+    token: refreshToken,
+    expiresAt,
+  });
+
+  return {
+    token: accessToken,
+    accessToken,
+    refreshToken,
+    user: sanitizeUserForAuthResponse(user),
+    isNewUser,
+  };
+};
+
+export const googleLoginUser = async (credential, fcmToken = null, platform = "web", ref = null) => {
+  if (!credential) {
+    throw new ValidationError("Google credential is required");
+  }
+
+  const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+  
+  let payload;
+  try {
+    const ticket = await client.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    payload = ticket.getPayload();
+  } catch (error) {
+    logger.error({ err: error }, "Google token verification failed");
+    throw new AuthError("Invalid Google authentication token");
+  }
+
+  if (!payload || !payload.email) {
+    throw new AuthError("Google authentication failed to provide email");
+  }
+
+  const { sub: googleId, email, name, picture: profileImage } = payload;
+  const trimmedName = typeof name === "string" ? name.trim() : "";
+
+  // Find existing user by googleId or email
+  let existingUser = await FoodUser.findOne({
+    $or: [{ googleId }, { email }],
+  });
+
+  let isNewUser = false;
+  let userDoc = existingUser;
+
+  if (userDoc && userDoc.isActive === false) {
+     throw new AuthError("Your account has been deactivated. Please contact support.");
+  }
+
+  if (!userDoc) {
+    isNewUser = true;
+    userDoc = await FoodUser.create({
+      googleId,
+      email,
+      name: trimmedName,
+      profileImage,
+      authProvider: "google",
+      isVerified: true, // Google handles email verification
+    });
+  } else {
+    // Update existing user if needed
+    let needsSave = false;
+    if (!userDoc.googleId) {
+      userDoc.googleId = googleId;
+      needsSave = true;
+    }
+    if (userDoc.authProvider !== "google") {
+      userDoc.authProvider = "google";
+      needsSave = true;
+    }
+    if (!userDoc.isVerified) {
+      userDoc.isVerified = true;
+      needsSave = true;
+    }
+    if (!userDoc.email) {
+      userDoc.email = email;
+      needsSave = true;
+    }
+    if (!userDoc.profileImage && profileImage) {
+      userDoc.profileImage = profileImage;
+      needsSave = true;
+    }
+    if (!userDoc.name && trimmedName) {
+      userDoc.name = trimmedName;
+      needsSave = true;
+    }
+    if (needsSave) await userDoc.save();
+  }
+
+  // Update FCM token if provided
+  if (fcmToken) {
+    let isModified = false;
+    if (platform === "mobile") {
+      if (!userDoc.fcmTokenMobile) userDoc.fcmTokenMobile = [];
+      if (!userDoc.fcmTokenMobile.includes(fcmToken)) {
+        userDoc.fcmTokenMobile.push(fcmToken);
+        isModified = true;
+      }
+    } else {
+      // Default to web if not explicitly mobile
+      if (!userDoc.fcmTokens) userDoc.fcmTokens = [];
+      if (!userDoc.fcmTokens.includes(fcmToken)) {
+        userDoc.fcmTokens.push(fcmToken);
+        isModified = true;
+      }
+    }
+    if (isModified) {
+      await userDoc.save();
+    }
+  }
+
+  // Ensure referralCode exists
+  if (!userDoc.referralCode) {
+    userDoc.referralCode = String(userDoc._id);
+    await userDoc.save();
+  }
+
+  // Referral crediting for brand new accounts
+  const refRaw = typeof ref === "string" ? String(ref).trim() : "";
+  if (isNewUser && refRaw) {
+    try {
+      if (mongoose.Types.ObjectId.isValid(refRaw)) {
+        const referrerId = new mongoose.Types.ObjectId(refRaw);
+        if (String(referrerId) !== String(userDoc._id)) {
+          const [referrer, settingsDoc] = await Promise.all([
+            FoodUser.findById(referrerId).select("_id referralCount").lean(),
+            FoodReferralSettings.findOne({ isActive: true })
+              .sort({ createdAt: -1 })
+              .lean(),
+          ]);
+
+          if (referrer && settingsDoc) {
+            const reward = Math.max(
+              0,
+              Number(settingsDoc.referralRewardUser) || 0,
+            );
+            const limit = Math.max(
+              0,
+              Number(settingsDoc.referralLimitUser) || 0,
+            );
+
+            if (
+              reward > 0 &&
+              limit > 0 &&
+              Number(referrer.referralCount || 0) < limit
+            ) {
+              userDoc.referredBy = referrerId;
+              await userDoc.save();
+
+              const log = await FoodReferralLog.create({
+                referrerId,
+                refereeId: userDoc._id,
+                role: "USER",
+                rewardAmount: reward,
+                status: "credited",
+              });
+
+              await Promise.all([
+                FoodUser.updateOne(
+                  { _id: referrerId },
+                  { $inc: { referralCount: 1 } },
+                ),
+                creditReferralReward(referrerId, reward, {
+                  role: "USER",
+                  refereeId: String(userDoc._id),
+                  referralLogId: String(log._id),
+                }),
+              ]);
+            } else {
+              await FoodReferralLog.create({
+                referrerId,
+                refereeId: userDoc._id,
+                role: "USER",
+                rewardAmount: reward,
+                status: "rejected",
+                reason:
+                  reward <= 0
+                    ? "reward_disabled"
+                    : limit <= 0
+                      ? "limit_disabled"
+                      : "limit_reached",
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // Never fail login due to referral errors.
+      logger?.warn?.({ err: e }, "Referral crediting failed (google login)");
+    }
+  }
+
+  const user = userDoc.toObject();
+  const jwtPayload = { userId: user._id.toString(), role: user.role || "USER" };
+
+  const accessToken = signAccessToken(jwtPayload);
+  const refreshToken = signRefreshToken(jwtPayload);
+
+  const ttlMs = ms(config.jwtRefreshExpiresIn || "7d");
+  const expiresAt = new Date(Date.now() + ttlMs);
+
+  await FoodRefreshToken.create({
+    userId: user._id,
+    token: refreshToken,
+    expiresAt,
+  });
+
+  return {
+    token: accessToken,
+    accessToken,
+    refreshToken,
+    user: sanitizeUserForAuthResponse(user),
+    isNewUser,
+  };
+};
+
+export const adminLogin = async (email, password) => {
+  if (!email || !password) {
+    throw new ValidationError("Email and password are required");
+  }
+
+  const admin = await FoodAdmin.findOne({ email, isDeleted: { $ne: true } });
+  if (!admin) {
+    throw new AuthError("Invalid credentials");
+  }
+
+  if (admin.status === 'suspended') {
+    throw new AuthError("Your account has been suspended. Please contact support.");
+  }
+
+  if (admin.status === 'inactive' || admin.isActive === false) {
+    throw new AuthError("Your account is inactive. Please contact the administrator.");
+  }
+
+  const isMatch = await admin.comparePassword(password);
+  if (!isMatch) {
+    throw new AuthError("Invalid credentials");
+  }
+
+  // Update lastLogin
+  admin.lastLogin = new Date();
+  await admin.save();
+
+  const payload = { userId: admin._id.toString(), role: admin.role };
+
+  const accessToken = signAccessToken(payload);
+  const refreshToken = signRefreshToken(payload);
+
+  const ttlMs = ms(config.jwtRefreshExpiresIn || "7d");
+  const expiresAt = new Date(Date.now() + ttlMs);
+
+  await FoodRefreshToken.create({
+    userId: admin._id,
+    token: refreshToken,
+    expiresAt,
+  });
+
+  const userObj = admin.toObject();
+  delete userObj.password;
+  return { accessToken, refreshToken, user: userObj };
+};
+
+export const requestRestaurantOtp = async (phone) => {
+  if (!phone) {
+    throw new ValidationError("Phone is required");
+  }
+  const otp = await createOrUpdateOtp(phone);
+  // Only expose OTP in response when in default/dev mode — never in production with real SMS
+  const shouldExposeOtp =
+    config.nodeEnv !== "production" || config.useDefaultOtp;
+  return shouldExposeOtp ? { otp } : {};
+};
+
+export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform, confirmAction) => {
+  // Restaurants may store ownerPhone with country code or formatting.
+  const digits = String(phone || "").replace(/\D/g, "");
+  const last10 = digits.slice(-10);
+  const phoneCandidates = [phone, digits, last10].filter(Boolean);
+  const phoneOrFields = (field) => [
+    { [field]: { $in: phoneCandidates } },
+    ...(last10 ? [{ [field]: { $regex: new RegExp(last10 + "$") } }] : []),
+  ];
+
+  // Search for all matching restaurants to handle cases with multiple records (e.g. deleted vs active)
+  const matchingRestaurants = await FoodRestaurant.find({
+    $or: [
+      ...phoneOrFields("ownerPhone"),
+      ...phoneOrFields("primaryContactNumber"),
+    ],
+  });
+
+  // Prioritize accounts: approved > pending > rejected > deleted
+  const statusPriority = { approved: 1, pending: 2, rejected: 3, deleted: 4 };
+  const sortedRestaurants = matchingRestaurants.sort((a, b) => {
+    const pA = statusPriority[a.status] || 99;
+    const pB = statusPriority[b.status] || 99;
+    return pA - pB;
+  });
+
+  const existingRestaurant = sortedRestaurants[0] || null;
+
+  const isDeleted = existingRestaurant && existingRestaurant.status === "deleted";
+  const preserveOtp = isDeleted && !confirmAction;
+
+  console.log(`[DEBUG] Restaurant OTP Login Attempt: phone=${phone}, otp=${otp}, confirmAction=${confirmAction}`);
+  const result = await verifyOtp(phone, otp, preserveOtp);
+  if (!result.valid) {
+    throw new AuthError(result.reason || "OTP verification failed");
+  }
+
+  let restaurant = existingRestaurant;
+
+  // Handle soft-deleted accounts if found
+  if (restaurant && restaurant.status === "deleted") {
+    if (!confirmAction) {
+      return {
+        deletedAccountFound: true,
+        phone,
+        role: ROLES.RESTAURANT,
+        name: restaurant.restaurantName
+      };
+    }
+
+    if (confirmAction === "restore") {
+      restaurant.status = "approved";
+      await restaurant.save();
+      logger.info({ restaurantId: restaurant._id }, "Restaurant account restored successfully");
+    } else if (confirmAction === "new") {
+      const suffix = `_deleted_${Date.now()}`;
+      
+      // Rename ALL potential phone fields if they match any of the candidates
+      const fieldsToRename = ["ownerPhone", "primaryContactNumber"];
+      for (const field of fieldsToRename) {
+        const val = restaurant[field];
+        if (val) {
+          const valDigits = String(val).replace(/\D/g, "");
+          const searchDigits = String(phone).replace(/\D/g, "");
+          // If the field contains the phone number we're verifying, rename it
+          if (valDigits.includes(searchDigits) || searchDigits.includes(valDigits)) {
+            restaurant[field] = `${val}${suffix}`;
+          }
+        }
+      }
+      
+      await restaurant.save();
+      logger.info({ restaurantId: restaurant._id }, "Old restaurant account renamed for fresh start");
+      
+      // Setting restaurant to null will trigger the "needsRegistration" flow below
+      restaurant = null;
+    }
+  }
+
+  if (!restaurant) {
+    // Phone has been successfully verified, but no restaurant exists yet.
+    // Frontend will use this to redirect into registration/onboarding.
+    return {
+      needsRegistration: true,
+      phone,
+    };
+  }
+
+  // Update FCM token if provided
+  if (fcmToken) {
+    let isModified = false;
+    if (platform === "mobile") {
+      if (!restaurant.fcmTokenMobile) restaurant.fcmTokenMobile = [];
+      if (!restaurant.fcmTokenMobile.includes(fcmToken)) {
+        restaurant.fcmTokenMobile.push(fcmToken);
+        isModified = true;
+      }
+    } else {
+      if (!restaurant.fcmTokens) restaurant.fcmTokens = [];
+      if (!restaurant.fcmTokens.includes(fcmToken)) {
+        restaurant.fcmTokens.push(fcmToken);
+        isModified = true;
+      }
+    }
+    if (isModified) {
+      await restaurant.save();
+    }
+  }
+
+  // If restaurant is deleted, block login. Pending and rejected restaurants are allowed to log in so they can view status and resubmit.
+  if (restaurant.status && restaurant.status === "deleted") {
+    const message = "Your restaurant account has been deleted.";
+    console.warn(`⚠️ [Auth-Restaurant] Login blocked for ${phone}: status=${restaurant.status}, message=${message}`);
+    throw new AuthError(message);
+  }
+
+  const payload = { userId: restaurant._id.toString(), role: ROLES.RESTAURANT };
+  const accessToken = signAccessToken(payload);
+  const refreshToken = signRefreshToken(payload);
+  const ttlMs = ms(config.jwtRefreshExpiresIn || "7d");
+  const expiresAt = new Date(Date.now() + ttlMs);
+
+  await FoodRefreshToken.create({
+    userId: restaurant._id,
+    token: refreshToken,
+    expiresAt,
+  });
+
+  return {
+    token: accessToken,
+    accessToken,
+    refreshToken,
+    user: sanitizeRestaurantForAuthResponse(restaurant?.toObject?.() || restaurant),
+    needsRegistration: false,
+  };
+};
+export const logout = async (refreshToken, fcmToken, platform) => {
+  if (!refreshToken) {
+    throw new ValidationError("Refresh token is required");
+  }
+
+  // 1. Remove specific FCM token from ALL collections if provided
+  if (fcmToken) {
+    console.log(`[FCM-Logout] Starting logout-driven token removal: platform=${platform}, tokenPreview=${fcmToken?.slice(0, 10)}...`);
+    
+    // We try to remove the token from all 4 possible models regardless of the user ID, 
+    // ensuring no stale connections are left across any role or app the user was logged into.
+    const field = platform === "mobile" ? "fcmTokenMobile" : "fcmTokens";
+    const models = [FoodUser, FoodRestaurant, FoodAdmin];
+    
+    try {
+      await Promise.all(
+        models.map((model) =>
+          model.updateMany(
+            { [field]: fcmToken },
+            { $pull: { [field]: fcmToken } },
+          ),
+        ),
+      );
+      console.log("[FCM-Logout] Token removed from all collections successfully");
+    } catch (err) {
+      logger.warn({ err }, "Failed to remove FCM token from all collections during logout");
+    }
+  }
+
+  // 2. Invalidate the refresh token (standard logout procedure)
+  const deleted = await FoodRefreshToken.deleteOne({ token: refreshToken });
+  return { invalidated: deleted.deletedCount > 0 };
+};
+
+export const logoutAllDevices = async (userId) => {
+  if (!userId) {
+    throw new AuthError("User ID is required");
+  }
+
+  try {
+    const id = typeof userId === "string" ? new mongoose.Types.ObjectId(userId) : userId;
+
+    // 1. Remove all refresh tokens for this user
+    const deleted = await FoodRefreshToken.deleteMany({ userId: id });
+    console.log(`✅ [LogoutAllDevices] Deleted ${deleted.deletedCount} refresh tokens for user ${id}`);
+
+    // 2. Remove all FCM tokens for this user from all collections
+    const models = [FoodUser, FoodRestaurant, FoodAdmin];
+    await Promise.all(
+      models.map(model => 
+        model.updateOne(
+          { _id: id },
+          { $set: { fcmTokens: [], fcmTokenMobile: [] } }
+        )
+      )
+    );
+
+    return { invalidated: deleted.deletedCount > 0, count: deleted.deletedCount };
+  } catch (error) {
+    logger.error(`[Logout-All] Failed for ID=${userId}: ${error.message}`);
+    throw error;
+  }
+};
+
+export const getProfile = async (userId, role) => {
+  if (!userId || !role) {
+    throw new AuthError("Invalid token payload");
+  }
+  let profile = null;
+  const id = userId;
+
+  switch (role) {
+    case ROLES.USER:
+      profile = await FoodUser.findById(id).lean();
+      break;
+    case ROLES.ADMIN:
+      profile = await FoodAdmin.findById(id).select("-password").lean();
+      break;
+    case ROLES.RESTAURANT:
+      {
+        const doc = await FoodRestaurant.findById(id).lean();
+        if (!doc) break;
+
+        const location =
+          doc.addressLine1 ||
+          doc.addressLine2 ||
+          doc.area ||
+          doc.city ||
+          doc.state ||
+          doc.pincode ||
+          doc.landmark
+            ? {
+                addressLine1: doc.addressLine1 || "",
+                addressLine2: doc.addressLine2 || "",
+                area: doc.area || "",
+                city: doc.city || "",
+                state: doc.state || "",
+                pincode: doc.pincode || "",
+                landmark: doc.landmark || "",
+              }
+            : null;
+
+        const menuImages = Array.isArray(doc.menuImages)
+          ? doc.menuImages
+              .map((m) => (m && (typeof m === "string" ? m : m.url)) || null)
+              .filter(Boolean)
+              .map((url) => ({ url, publicId: null }))
+          : [];
+
+        profile = {
+          id: doc._id,
+          _id: doc._id,
+          // Frontend expects "name" and "location" for restaurant screens.
+          name: doc.restaurantName || "",
+          restaurantName: doc.restaurantName || "",
+          cuisines: Array.isArray(doc.cuisines) ? doc.cuisines : [],
+          location,
+          ownerName: doc.ownerName || "",
+          ownerEmail: doc.ownerEmail || "",
+          ownerPhone: doc.ownerPhone || "",
+          primaryContactNumber: doc.primaryContactNumber || "",
+          profileImage: doc.profileImage ? { url: doc.profileImage } : null,
+          menuImages,
+          coverImages: [],
+          openingTime: doc.openingTime || null,
+          closingTime: doc.closingTime || null,
+          openDays: Array.isArray(doc.openDays) ? doc.openDays : [],
+          status: doc.status || null,
+          createdAt: doc.createdAt,
+          updatedAt: doc.updatedAt,
+          // These fields may not exist yet in DB, keep stable defaults for UI.
+          rating: typeof doc.rating === "number" ? doc.rating : 0,
+          totalRatings:
+            typeof doc.totalRatings === "number" ? doc.totalRatings : 0,
+        };
+      }
+      break;
+    default:
+      throw new AuthError("Unknown role");
+  }
+
+  if (!profile) {
+    throw new AuthError("Profile not found");
+  }
+  return { user: profile };
+};
+
+export const deleteAccount = async (id, role) => {
+  if (!id || !role) {
+    throw new AuthError("Missing required parameters for account deletion");
+  }
+
+  try {
+    if (role === ROLES.USER) {
+      // Delete only the profile document. Related records are intentionally kept.
+      const deletedUser = await FoodUser.deleteOne({ _id: id });
+      if (deletedUser.deletedCount !== 1) {
+        throw new AuthError("User account not found");
+      }
+    } else if (role === ROLES.RESTAURANT) {
+      // Soft delete restaurant: mark as deleted.
+      // We keep orders and transactions for admin analytics.
+      await FoodRestaurant.updateOne({ _id: id }, { status: "deleted", deletedAt: new Date(), fcmTokens: [], fcmTokenMobile: [], isAcceptingOrders: false });
+      await FoodRefreshToken.deleteMany({ userId: id });
+    } else {
+      throw new AuthError("Invalid role for account deletion");
+    }
+
+    return { success: true, message: "Account deleted successfully" };
+  } catch (error) {
+    logger.error({ err: error, id, role }, "Failed to delete account");
+    throw error;
+  }
+};
+
+export const checkAccountBalance = async (userId, role) => {
+  if (!userId || !role) {
+    throw new AuthError("Invalid token payload for balance check");
+  }
+
+  let balance = 0;
+  let type = "Wallet";
+
+  switch (role) {
+    case ROLES.USER: {
+      const wallet = await FoodUserWallet.findOne({ userId }).select("balance").lean();
+      balance = Number(wallet?.balance || 0);
+      type = "Wallet Balance";
+      break;
+    }
+    case ROLES.RESTAURANT: {
+      const wallet = await FoodRestaurantWallet.findOne({ restaurantId: userId }).select("balance").lean();
+      balance = Number(wallet?.balance || 0);
+      type = "Restaurant Wallet Balance";
+      break;
+    }
+    default:
+      throw new AuthError("Unknown role for balance check");
+  }
+
+  return { balance, type };
+};
+
+const ADMIN_SERVICES_ALLOWED = ["food", "quickCommerce", "taxi"];
+
+/** Update admin profile (name, email, phone, profileImage). Only for ADMIN role. */
+export const updateAdminProfile = async (userId, body) => {
+  if (!userId) {
+    throw new AuthError("Invalid token payload");
+  }
+  const admin = await FoodAdmin.findById(userId);
+  if (!admin) {
+    throw new AuthError("Profile not found");
+  }
+  if (body.name !== undefined) admin.name = String(body.name || "").trim();
+  if (body.email !== undefined) {
+    const normalizedEmail = String(body.email || "")
+      .trim()
+      .toLowerCase();
+    if (!normalizedEmail) {
+      throw new ValidationError("Email is required");
+    }
+    if (normalizedEmail !== admin.email) {
+      const duplicateAdmin = await FoodAdmin.findOne({
+        _id: { $ne: admin._id },
+        email: normalizedEmail,
+      })
+        .select("_id")
+        .lean();
+      if (duplicateAdmin) {
+        throw new ValidationError("Email is already in use");
+      }
+    }
+    admin.email = normalizedEmail;
+  }
+  if (body.phone !== undefined) admin.phone = String(body.phone || "").trim();
+  if (body.profileImage !== undefined)
+    admin.profileImage = String(body.profileImage || "").trim();
+  // Normalize servicesAccess so legacy values (e.g. 'zomato') don't fail schema validation on save
+  if (Array.isArray(admin.servicesAccess)) {
+    const valid = admin.servicesAccess.filter((s) =>
+      ADMIN_SERVICES_ALLOWED.includes(s),
+    );
+    admin.servicesAccess = valid.length ? valid : ["food"];
+  } else {
+    admin.servicesAccess = ["food"];
+  }
+  await admin.save();
+  const profile = admin.toObject();
+  delete profile.password;
+  return { user: profile };
+};
+
+/** Change admin password. Only for ADMIN role. */
+export const changeAdminPassword = async (
+  userId,
+  currentPassword,
+  newPassword,
+) => {
+  if (!userId) {
+    throw new AuthError("Invalid token payload");
+  }
+  const admin = await FoodAdmin.findById(userId);
+  if (!admin) {
+    throw new AuthError("Profile not found");
+  }
+  const isMatch = await admin.comparePassword(currentPassword);
+  if (!isMatch) {
+    throw new AuthError("Current password is incorrect");
+  }
+  if (!newPassword || String(newPassword).length < 6) {
+    throw new ValidationError("New password must be at least 6 characters");
+  }
+  admin.password = newPassword;
+  await admin.save();
+
+  try {
+    const { notifyAdminsSafely } = await import("../../core/notifications/firebase.service.js");
+    void notifyAdminsSafely({
+      title: "Security Alert: Password Changed 🔐",
+      body: `The password for admin account ${admin.email} has been changed. If this was not you, please contact support immediately.`,
+      data: {
+        type: "security_alert",
+        subType: "password_change",
+        email: admin.email
+      }
+    });
+  } catch (e) {
+    console.error("Failed to notify admins of password change:", e);
+  }
+
+  return { success: true };
+};
+
+/** Admin forgot password: request OTP. Only accepts email that is registered as admin. */
+const hashSha256 = (text) => {
+  return crypto.createHash("sha256").update(text).digest("hex");
+};
+
+export const requestAdminForgotPasswordOtp = async (email, phone, ip = '', userAgent = '') => {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const normalizedPhone = String(phone || "").trim().replace(/\D/g, "");
+
+  if (!normalizedEmail || !normalizedPhone) {
+    throw new ValidationError("Email and mobile number are required");
+  }
+
+  const admin = await FoodAdmin.findOne({ email: normalizedEmail, isDeleted: { $ne: true } });
+  if (!admin) {
+    throw new AuthError("The provided recovery information is invalid.");
+  }
+
+  let isMatch = false;
+  if (admin.role === 'ADMIN') {
+    const mainEmailMatch = admin.email === normalizedEmail;
+    const recoveryEmailMatch = admin.recoveryEmail && admin.recoveryEmail === normalizedEmail;
+    const emailMatch = mainEmailMatch || recoveryEmailMatch;
+
+    const mainPhoneMatch = admin.phone && admin.phone.replace(/\D/g, "") === normalizedPhone;
+    const recoveryPhoneMatch = admin.recoveryMobile && admin.recoveryMobile.replace(/\D/g, "") === normalizedPhone;
+    const phoneMatch = mainPhoneMatch || recoveryPhoneMatch;
+
+    if (emailMatch && phoneMatch) {
+      isMatch = true;
+    }
+  } else if (admin.role === 'SUB_ADMIN') {
+    const emailMatch = admin.email === normalizedEmail;
+    const phoneMatch = admin.phone && admin.phone.replace(/\D/g, "") === normalizedPhone;
+    if (emailMatch && phoneMatch) {
+      isMatch = true;
+    }
+  }
+
+  if (!isMatch) {
+    await mongoose.model('FoodAdminAuditLog').create({
+      adminId: admin._id,
+      adminEmail: normalizedEmail,
+      action: 'Recovery Requested Failed',
+      details: 'Recovery failed: provided recovery details do not match records.',
+      ip,
+      userAgent
+    });
+    throw new AuthError("The provided recovery information is invalid.");
+  }
+
+  const existingOtp = await AdminResetOtp.findOne({ email: normalizedEmail });
+  const now = new Date();
+
+  if (existingOtp) {
+    if (existingOtp.lockedUntil && existingOtp.lockedUntil > now) {
+      const remMins = Math.ceil((existingOtp.lockedUntil - now) / 60000);
+      throw new AuthError(`Account locked due to too many failed attempts. Try again in ${remMins} minutes.`);
+    }
+
+    if (existingOtp.lastResentAt) {
+      const timeDiffSec = Math.floor((now - existingOtp.lastResentAt) / 1000);
+      if (timeDiffSec < 60) {
+        throw new AuthError(`Please wait ${60 - timeDiffSec} seconds before requesting a new OTP.`);
+      }
+    }
+
+    if (existingOtp.resendAttempts >= 3) {
+      existingOtp.lockedUntil = new Date(Date.now() + 15 * 60 * 1000);
+      await existingOtp.save();
+
+      await mongoose.model('FoodAdminAuditLog').create({
+        adminId: admin._id,
+        adminEmail: admin.email,
+        action: 'Too Many Attempts',
+        details: 'Recovery blocked: maximum resend attempts (3) exceeded. Locked for 15 minutes.',
+        ip,
+        userAgent
+      });
+      throw new AuthError("Maximum OTP resends exceeded. Session locked for 15 minutes.");
+    }
+  }
+
+  const otp = config.useDefaultOtp ? "123456" : String(crypto.randomInt(100000, 999999));
+  const otpHash = hashSha256(otp);
+  const otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+  await AdminResetOtp.findOneAndUpdate(
+    { email: normalizedEmail },
+    {
+      phone: normalizedPhone,
+      otpHash,
+      otpExpiresAt,
+      attempts: 0,
+      isVerified: false,
+      resetToken: null,
+      resetTokenExpiresAt: null,
+      lockedUntil: null,
+      $inc: { resendAttempts: 1 },
+      lastResentAt: now
+    },
+    { upsert: true, new: true }
+  );
+
+  let emailSent = false;
+  let smsSent = false;
+
+  try {
+    emailSent = await sendAdminResetOtpEmail(normalizedEmail, otp);
+  } catch (err) {
+    logger.error(`Failed to send recovery OTP email: ${err.message}`);
+  }
+
+  try {
+    await sendOrderSms(admin.phone || normalizedPhone, otp);
+    smsSent = true;
+  } catch (err) {
+    logger.error(`Failed to send recovery OTP SMS: ${err.message}`);
+  }
+
+  await mongoose.model('FoodAdminAuditLog').create({
+    adminId: admin._id,
+    adminEmail: admin.email,
+    action: 'Recovery Requested',
+    details: `OTP generated. Email Sent: ${emailSent ? 'Yes' : 'No'}. SMS Sent: ${smsSent ? 'Yes' : 'No'}.`,
+    ip,
+    userAgent
+  });
+
+  return {
+    success: true,
+    message: "A verification code has been sent to your registered contact channels."
+  };
+};
+
+export const verifyAdminForgotPasswordOtp = async (email, otp, ip = '', userAgent = '') => {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const otpStr = String(otp || "").replace(/\D/g, "");
+
+  if (!normalizedEmail || !otpStr) {
+    throw new ValidationError("Email and verification code are required");
+  }
+
+  const record = await AdminResetOtp.findOne({ email: normalizedEmail });
+  if (!record) {
+    throw new AuthError("The verification code is invalid or has expired.");
+  }
+
+  const now = new Date();
+
+  if (record.lockedUntil && record.lockedUntil > now) {
+    const remMins = Math.ceil((record.lockedUntil - now) / 60000);
+    throw new AuthError(`Session locked due to too many failed attempts. Try again in ${remMins} minutes.`);
+  }
+
+  if (record.otpExpiresAt < now) {
+    await record.deleteOne();
+    throw new AuthError("The verification code is invalid or has expired.");
+  }
+
+  const admin = await FoodAdmin.findOne({ email: normalizedEmail, isDeleted: { $ne: true } });
+  const adminId = admin ? admin._id : null;
+
+  if (record.attempts >= 5) {
+    record.lockedUntil = new Date(Date.now() + 15 * 60 * 1000);
+    record.attempts = 0;
+    await record.save();
+
+    await mongoose.model('FoodAdminAuditLog').create({
+      adminId,
+      adminEmail: normalizedEmail,
+      action: 'Too Many Attempts',
+      details: 'Recovery OTP verification blocked: 5 failed attempts reached. Locked for 15 minutes.',
+      ip,
+      userAgent
+    });
+    throw new AuthError("Too many attempts. Verification session locked for 15 minutes.");
+  }
+
+  const otpHash = hashSha256(otpStr);
+  if (record.otpHash !== otpHash) {
+    record.attempts += 1;
+    await record.save();
+
+    await mongoose.model('FoodAdminAuditLog').create({
+      adminId,
+      adminEmail: normalizedEmail,
+      action: 'OTP Failed',
+      details: `Failed OTP entry. Attempts: ${record.attempts}/5.`,
+      ip,
+      userAgent
+    });
+
+    throw new AuthError("The verification code is invalid or has expired.");
+  }
+
+  const resetToken = crypto.randomBytes(32).toString('hex');
+  record.resetToken = resetToken;
+  record.resetTokenExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  record.isVerified = true;
+  record.attempts = 0;
+  record.otpHash = 'USED';
+  await record.save();
+
+  await mongoose.model('FoodAdminAuditLog').create({
+    adminId,
+    adminEmail: normalizedEmail,
+    action: 'OTP Verified',
+    details: 'OTP verified successfully. Reset token issued.',
+    ip,
+    userAgent
+  });
+
+  return {
+    success: true,
+    resetToken
+  };
+};
+
+export const resetAdminPasswordWithOtp = async (resetToken, newPassword, ip = '', userAgent = '') => {
+  if (!resetToken || !newPassword) {
+    throw new ValidationError("Reset token and password are required");
+  }
+
+  const record = await AdminResetOtp.findOne({
+    resetToken,
+    isVerified: true,
+    resetTokenExpiresAt: { $gt: new Date() }
+  });
+
+  if (!record) {
+    throw new AuthError("Session expired or invalid reset token. Please request a new code.");
+  }
+
+  const admin = await FoodAdmin.findOne({ email: record.email, isDeleted: { $ne: true } });
+  if (!admin) {
+    await record.deleteOne();
+    throw new AuthError("Account not found.");
+  }
+
+  if (newPassword.length < 8) {
+    throw new ValidationError("Password must be at least 8 characters long");
+  }
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+  if (!passwordRegex.test(newPassword)) {
+    throw new ValidationError("Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character");
+  }
+
+  if (admin.passwordHistory && admin.passwordHistory.length > 0) {
+    for (const oldHash of admin.passwordHistory) {
+      const match = await bcrypt.compare(newPassword, oldHash);
+      if (match) {
+        throw new ValidationError("You cannot reuse any of your recently used passwords.");
+      }
+    }
+  }
+
+  const matchCurrent = await bcrypt.compare(newPassword, admin.password);
+  if (matchCurrent) {
+    throw new ValidationError("You cannot reuse any of your recently used passwords.");
+  }
+
+  admin.password = newPassword;
+  admin.passwordResetDate = new Date();
+  await admin.save();
+
+  await record.deleteOne();
+
+  await mongoose.model('FoodRefreshToken').deleteMany({ userId: admin._id });
+
+  await mongoose.model('FoodAdminAuditLog').create({
+    adminId: admin._id,
+    adminEmail: admin.email,
+    action: 'Password Reset Successful',
+    details: 'Password reset completed. All active sessions invalidated.',
+    ip,
+    userAgent
+  });
+
+  try {
+    const from = config.emailFrom || config.emailUser;
+    const transporter = nodemailer.createTransport({
+        host: config.emailHost,
+        port: config.emailPort || 587,
+        secure: config.emailPort === 465,
+        auth: {
+            user: config.emailUser,
+            pass: config.emailPass
+        }
+    });
+
+    const mailOptions = {
+      from,
+      to: admin.recoveryEmail || admin.email,
+      subject: 'Security Alert: Your Bhookingo Admin Password Has Been Changed',
+      html: `
+        <p>Hello,</p>
+        <p><strong>Your Bhookingo Admin password was changed successfully.</strong></p>
+        <p>If this wasn't you, please contact support immediately.</p>
+        <p>Timestamp: ${new Date().toUTCString()}</p>
+      `
+    };
+    await transporter.sendMail(mailOptions);
+  } catch (err) {
+    logger.error(`Failed to send password changed notification email: ${err.message}`);
+  }
+
+  try {
+    await sendOrderSms(
+      admin.recoveryMobile || admin.phone,
+      "Your Bhookingo Admin password was changed successfully. If this wasn't you, contact support immediately."
+    );
+  } catch (err) {
+    logger.error(`Failed to send password changed notification SMS: ${err.message}`);
+  }
+
+  return { success: true };
+};
+
+export const refreshAccessToken = async (token) => {
+  if (!token) {
+    throw new ValidationError("Refresh token is required");
+  }
+
+  const stored = await FoodRefreshToken.findOne({ token }).lean();
+  if (!stored) {
+    throw new AuthError("Invalid refresh token");
+  }
+
+  const jwt = await import("jsonwebtoken");
+  let payload;
+  try {
+    payload = jwt.default.verify(token, config.jwtRefreshSecret);
+  } catch {
+    throw new AuthError("Invalid refresh token");
+  }
+
+  // If deactivated user, do not issue fresh access tokens (forces logout on client)
+  if (payload?.role === "USER") {
+    const u = await FoodUser.findById(payload.userId).select("isActive").lean();
+    if (!u || u.isActive === false) {
+      throw new AuthError("User account is deactivated");
+    }
+  }
+
+  const newAccessToken = signAccessToken({
+    userId: payload.userId,
+    role: payload.role,
+  });
+
+  return { accessToken: newAccessToken, refreshToken: token };
+};
