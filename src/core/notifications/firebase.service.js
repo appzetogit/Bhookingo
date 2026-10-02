@@ -173,15 +173,25 @@ const buildMessagePayload = (payload = {}, token) => {
         message.data = data;
     }
 
+    // payload.android lets a caller pick the Android channel/sound and tag the
+    // tray notification. The restaurant app's new-order alert relies on all
+    // three: its channel carries the custom ring (tujh_bin), and the tag
+    // (`order_<id>`) lets the app replace this copy in place with its own
+    // Accept/Reject version instead of stacking a second, muted one.
+    const androidOverrides = payload.android || {};
     message.android = {
         priority: 'high',
         notification: {
-            channel_id: 'default',
-            sound: 'default',
+            channel_id: sanitizeString(androidOverrides.channelId) || 'default',
+            sound: sanitizeString(androidOverrides.sound) || 'default',
             default_vibrate_timings: true,
             default_light_settings: true
         }
     };
+    const androidTag = sanitizeString(androidOverrides.tag);
+    if (androidTag) {
+        message.android.notification.tag = androidTag;
+    }
 
     message.webpush = {
         headers: {

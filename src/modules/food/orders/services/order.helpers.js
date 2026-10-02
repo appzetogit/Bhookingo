@@ -240,6 +240,13 @@ export async function notifyRestaurantNewOrder(orderDoc) {
           orderMongoId: orderDoc._id?.toString?.() || "",
           link: `/restaurant/orders/${orderDoc._id?.toString?.() || ""}`,
         },
+        // Must match the restaurant app (LocalNotificationService):
+        // newOrderChannelId, the res/raw sound, and orderTag().
+        android: {
+          channelId: "new_order_channel_v3",
+          sound: "tujh_bin",
+          tag: `order_${orderDoc._id.toString()}`,
+        },
       },
     );
   } catch {
