@@ -975,9 +975,17 @@ export async function submitOrderRatings(orderId, userId, dto) {
   };
 
   const restaurantFacilities = order.restaurantId?.facilities || {};
+  // Washroom and EV charging are reported by customers for every restaurant;
+  // the others only count where the restaurant has declared the facility.
+  const CUSTOMER_REPORTED_FACILITIES = ['washroom', 'evCharging'];
   FACILITIES_CONFIG.forEach(fac => {
     const facKey = fac.key;
-    const isSupported = restaurantFacilities[facKey] === true;
+    // `facilities.<key>` is a `{ available, rating }` subdocument, never a
+    // bare `true`, so the old `=== true` check silently dropped every
+    // facility rating. Legacy boolean values are still accepted.
+    const entry = restaurantFacilities[facKey];
+    const isDeclared = entry === true || entry?.available === true;
+    const isSupported = isDeclared || CUSTOMER_REPORTED_FACILITIES.includes(facKey);
     if (isSupported && dto[facKey]) {
       order.ratings[facKey] = {
         rating: typeof dto[facKey].rating === 'number' ? dto[facKey].rating : null,
