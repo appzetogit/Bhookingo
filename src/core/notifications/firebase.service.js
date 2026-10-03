@@ -173,24 +173,40 @@ const buildMessagePayload = (payload = {}, token) => {
         message.data = data;
     }
 
-    // payload.android lets a caller pick the Android channel/sound and tag the
-    // tray notification. The restaurant app's new-order alert relies on all
-    // three: its channel carries the custom ring (tujh_bin), and the tag
-    // (`order_<id>`) lets the app replace this copy in place with its own
-    // Accept/Reject version instead of stacking a second, muted one.
-    const androidOverrides = payload.android || {};
-    message.android = {
-        priority: 'high',
-        notification: {
-            channel_id: sanitizeString(androidOverrides.channelId) || 'default',
-            sound: sanitizeString(androidOverrides.sound) || 'default',
-            default_vibrate_timings: true,
-            default_light_settings: true
+    if (payload.dataOnly) {
+        // Data-only on Android is what lets the app draw its own alert: any
+        // notification block (top-level OR android.notification) makes the OS
+        // render the push itself while the app is in the background, and
+        // onMessageReceived is then never called. The restaurant app's native
+        // new-order card depends on that call.
+        message.android = { priority: 'high' };
+        // iOS has no native card, so it still gets a visible alert from APNs.
+        message.apns = {
+            headers: { 'apns-priority': '10' },
+            payload: {
+                aps: {
+                    alert: { title: notification.title, body: notification.body },
+                    sound: sanitizeString(payload.apnsSound) || 'default'
+                }
+            }
+        };
+    } else {
+        // payload.android lets a caller pick the Android channel/sound and tag
+        // the tray notification.
+        const androidOverrides = payload.android || {};
+        message.android = {
+            priority: 'high',
+            notification: {
+                channel_id: sanitizeString(androidOverrides.channelId) || 'default',
+                sound: sanitizeString(androidOverrides.sound) || 'default',
+                default_vibrate_timings: true,
+                default_light_settings: true
+            }
+        };
+        const androidTag = sanitizeString(androidOverrides.tag);
+        if (androidTag) {
+            message.android.notification.tag = androidTag;
         }
-    };
-    const androidTag = sanitizeString(androidOverrides.tag);
-    if (androidTag) {
-        message.android.notification.tag = androidTag;
     }
 
     message.webpush = {
