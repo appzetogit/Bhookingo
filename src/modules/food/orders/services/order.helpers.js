@@ -229,23 +229,46 @@ export async function notifyRestaurantNewOrder(orderDoc) {
       io.to(rooms.restaurant(orderDoc.restaurantId)).emit("new_order", payload);
     }
 
+    const mongoId = orderDoc._id.toString();
+    const displayId = String(orderDoc.order_id || mongoId);
+    const items = Array.isArray(orderDoc.items) ? orderDoc.items : [];
+    const itemCount = items.reduce((sum, it) => sum + (Number(it?.quantity) || 1), 0);
+    // FCM caps the whole data map at 4KB, so the list is trimmed rather than
+    // risking the push being rejected outright for a large order.
+    let itemsList = items
+      .map((it) => `${Number(it?.quantity) || 1}x ${String(it?.name || "").trim()}`)
+      .filter((line) => line.length > 2)
+      .join(", ");
+    if (itemsList.length > 300) itemsList = `${itemsList.slice(0, 297)}...`;
+    const total = orderDoc.pricing?.total;
+    const title = "New order received";
+    const body = `Order #${displayId} is waiting for review.`;
+
     await notifyOwnersSafely(
       [{ ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId }],
       {
-        title: "New order received",
-        body: `Order #${orderDoc.order_id || orderDoc._id} is waiting for review.`,
+        title,
+        body,
+        // Data-only: the restaurant app draws its own native card (or its own
+        // fallback notification) straight from these fields. A notification
+        // block would make Android render a plain alert instead and skip the
+        // app entirely while it is in the background.
+        dataOnly: true,
+        apnsSound: "tujh_bin.mp3",
         data: {
           type: "new_order",
-          orderId: orderDoc._id.toString(),
-          orderMongoId: orderDoc._id?.toString?.() || "",
-          link: `/restaurant/orders/${orderDoc._id?.toString?.() || ""}`,
-        },
-        // Must match the restaurant app (LocalNotificationService):
-        // newOrderChannelId, the res/raw sound, and orderTag().
-        android: {
-          channelId: "new_order_channel_v3",
-          sound: "tujh_bin",
-          tag: `order_${orderDoc._id.toString()}`,
+          orderId: mongoId,
+          orderMongoId: mongoId,
+          orderDisplayId: displayId,
+          customerName: orderDoc.customerName || orderDoc.receiverName || "",
+          itemCount: String(itemCount),
+          itemsList,
+          address: orderDoc.receiverAddressText || "",
+          total: total == null ? "" : String(total),
+          paymentMethod: orderDoc.payment?.method || "",
+          title,
+          body,
+          link: `/restaurant/orders/${mongoId}`,
         },
       },
     );
