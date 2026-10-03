@@ -2,8 +2,6 @@
 node_modules/
 
 # environment variables
-.env
-.env.*
 !.env.example
 
 # uploads
@@ -23,7 +21,6 @@ pids
 *.pid.lock
 
 # IDE - VSCode
-.vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
@@ -38,3 +35,4 @@ data/highways/*.geojson
 data/highways/*.json
 *.bak*
 data/migration_backup_*.json
+config.bat
