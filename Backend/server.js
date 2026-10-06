@@ -8,6 +8,7 @@ import { initRedisEmitter } from './src/config/socket.js';
 import { initializeQueues, closeBullMQConnection } from './src/queues/index.js';
 import { logger } from './src/utils/logger.js';
 import { initializeFirebaseRealtime } from './src/config/firebase.js';
+import { logVoipConfigurationWarnings } from './src/core/notifications/voip.service.js';
 
 const SHUTDOWN_TIMEOUT_MS = 10000;
 let server = null;
@@ -76,6 +77,7 @@ const startServer = async () => {
 
         // 6. Start the HTTP server
         server = httpServer.listen(config.port, config.host, () => {
+            logVoipConfigurationWarnings();
             logger.info(`API Server running in ${config.nodeEnv} mode on ${config.host}:${config.port}`);
             console.log(`🌐 [API URL] http://localhost:${config.port}`);
         });

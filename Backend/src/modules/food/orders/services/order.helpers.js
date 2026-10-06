@@ -5,6 +5,7 @@ import {
   sendNotificationToOwner,
   sendNotificationToOwners,
 } from "../../../../core/notifications/firebase.service.js";
+import { sendVoipNotificationToOwner } from "../../../../core/notifications/voip.service.js";
 import { getIO, rooms } from '../../../../config/socket.js';
 import { addOrderJob } from '../../../../queues/producers/order.producer.js';
 
@@ -229,19 +230,52 @@ export async function notifyRestaurantNewOrder(orderDoc) {
       io.to(rooms.restaurant(orderDoc.restaurantId)).emit("new_order", payload);
     }
 
-    await notifyOwnersSafely(
-      [{ ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId }],
-      {
-        title: "New order received",
-        body: `Order #${orderDoc.order_id || orderDoc._id} is waiting for review.`,
-        data: {
-          type: "new_order",
-          orderId: orderDoc._id.toString(),
-          orderMongoId: orderDoc._id?.toString?.() || "",
-          link: `/restaurant/orders/${orderDoc._id?.toString?.() || ""}`,
-        },
+    const orderMongoId = orderDoc._id?.toString?.() || "";
+    const items = Array.isArray(orderDoc.items) ? orderDoc.items : [];
+    const total = Number(orderDoc.pricing?.total || 0);
+    const itemsList = items.map((item) => `${item.quantity}x ${item.name}`).join(", ");
+    const title = "New order received!";
+    const body = `Total: Rs.${total} · ${items.length} items waiting for review`;
+    const notification = {
+      title,
+      body,
+      sound: "tujh_bin.caf",
+      type: "new_order",
+      data: {
+        type: "new_order",
+        orderId: orderMongoId,
+        orderMongoId,
+        total: String(total),
+        itemsList,
+        link: `/restaurant/orders/${orderMongoId}`,
       },
+    };
+
+    // iOS: VoIP push rings CallKit even when the app is killed.
+    let voipDelivered = false;
+    try {
+      const voip = await sendVoipNotificationToOwner({
+        ownerType: "RESTAURANT",
+        ownerId: orderDoc.restaurantId,
+        payload: notification,
+      });
+      voipDelivered = voip.successCount > 0;
+    } catch (error) {
+      logger.warn(`VoIP order ring failed: ${error?.message || error}`);
+    }
+
+    // Web push always goes out. Mobile FCM goes out only when no iPhone got the VoIP ring,
+    // so an iPhone doesn't ring twice (VoIP + FCM).
+    await notifyOwnersSafely(
+      [{ ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId, platform: "web" }],
+      notification,
     );
+    if (!voipDelivered) {
+      await notifyOwnersSafely(
+        [{ ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId, platform: "mobile" }],
+        notification,
+      );
+    }
   } catch {
     // Do not block order/payment flow if notification fails.
   }

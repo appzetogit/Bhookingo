@@ -210,6 +210,21 @@ const restaurantSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    /** Per-device push registrations; voipToken is the PushKit token used for iOS ringing. */
+    pushDevices: {
+      type: [
+        {
+          fcmToken: { type: String, trim: true },
+          voipToken: { type: String, trim: true },
+          pushPlatform: { type: String, enum: ['web', 'mobile'], default: 'mobile' },
+          devicePlatform: { type: String, enum: ['ios', 'android', 'web', 'unknown'], default: 'unknown' },
+          appRole: { type: String, trim: true },
+          deviceId: { type: String, trim: true },
+          lastSeenAt: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
     /** GeoJSON point used for distance queries. */
     location: {
       type: geoPointSchema,
