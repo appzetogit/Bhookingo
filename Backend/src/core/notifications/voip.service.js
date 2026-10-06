@@ -87,6 +87,7 @@ const getApnsJwtToken = () => {
         header: { alg: 'ES256', kid: keyId },
     });
     apnsJwtTokenExpiry = now + 3000; // Apple accepts a token for up to 60 min; refresh at ~50 min
+    logger.info(`[VoIP] JWT generated (kid=${keyId}, iss=${teamId}, key=${keyPath}, valid ~50 min)`);
     return apnsJwtToken;
 };
 
@@ -114,19 +115,64 @@ const getApnsClient = () => {
 
 const parsePushDevices = (doc) => (Array.isArray(doc?.pushDevices) ? doc.pushDevices : []);
 
+const APNS_REASON_HINTS = {
+    BadDeviceToken: 'Token is not valid for this APNs environment (sandbox vs production mismatch, or stale token).',
+    DeviceTokenNotForTopic: 'Token belongs to a different app than the topic (bundle ID) being sent to.',
+    TopicDisallowed: 'Topic (bundle ID) is not allowed for this .p8 key/team.',
+    InvalidProviderToken: 'JWT rejected: wrong APNS_KEY_ID, APNS_TEAM_ID, or .p8 file does not match the team.',
+    ExpiredProviderToken: 'JWT expired; the server will regenerate it on the next send.',
+    Unregistered: 'App was uninstalled or token is no longer valid; token is removed from the database.',
+    MissingTopic: 'apns-topic header is missing.',
+    PayloadTooLarge: 'Payload exceeds APNs size limit.',
+    TooManyRequests: 'APNs rate limit hit; retry later.',
+    ServiceUnavailable: 'APNs is temporarily unavailable.',
+};
+
+const describeApnsReason = (responseBody) => {
+    try {
+        const reason = JSON.parse(responseBody || '{}').reason || '';
+        return { reason, hint: APNS_REASON_HINTS[reason] || 'See Apple APNs error reference.' };
+    } catch {
+        return { reason: responseBody || 'unknown', hint: 'Unparseable APNs response.' };
+    }
+};
+
+const maskToken = (token) => (token ? `...${String(token).slice(-6)}` : 'none');
+
 export const logVoipConfigurationWarnings = () => {
     const restaurantTopic = normalizeVoipTopic(process.env.APNS_VOIP_TOPIC_RESTAURANT);
     const fallbackTopic = normalizeVoipTopic(process.env.APNS_VOIP_TOPIC);
+    const keyPathValue = sanitizeString(process.env.APNS_VOIP_P8_PATH);
+    const keyPath = keyPathValue
+        ? [keyPathValue, resolve(process.cwd(), keyPathValue)].find((candidate) => existsSync(candidate))
+        : null;
+    const keyFileName = keyPathValue.match(/AuthKey_([A-Z0-9]+)\.p8$/i)?.[1] || '';
+    const keyId = sanitizeString(process.env.APNS_KEY_ID);
+
+    logger.info('[VoIP] ===== APNs VoIP configuration =====');
+    logger.info(`[VoIP] Environment : ${isApnsProduction() ? 'PRODUCTION (api.push.apple.com)' : 'SANDBOX (api.sandbox.push.apple.com)'}`);
+    logger.info(`[VoIP] Team ID     : ${sanitizeString(process.env.APNS_TEAM_ID) || 'MISSING'}`);
+    logger.info(`[VoIP] Key ID      : ${keyId || 'MISSING'}`);
+    logger.info(`[VoIP] .p8 file    : ${keyPath ? `found at ${keyPath}` : `NOT FOUND (APNS_VOIP_P8_PATH=${keyPathValue || 'unset'}, cwd=${process.cwd()})`}`);
+    logger.info(`[VoIP] Restaurant topic: ${restaurantTopic || 'MISSING'}`);
+    logger.info(`[VoIP] Fallback topic  : ${fallbackTopic || 'not set'}`);
 
     if (!restaurantTopic && !fallbackTopic) {
-        logger.warn('[VoIP] Restaurant topic is missing. Set APNS_VOIP_TOPIC_RESTAURANT (or APNS_VOIP_TOPIC as fallback).');
+        logger.warn('[VoIP] No topic configured: restaurant VoIP rings will fail. Set APNS_VOIP_TOPIC_RESTAURANT.');
     }
-    if (!process.env.APNS_VOIP_P8_PATH || !process.env.APNS_TEAM_ID || !process.env.APNS_KEY_ID) {
-        logger.warn('[VoIP] APNs p8 credentials incomplete. Set APNS_TEAM_ID, APNS_KEY_ID and APNS_VOIP_P8_PATH.');
+    if (!process.env.APNS_TEAM_ID || !keyId || !keyPathValue) {
+        logger.warn('[VoIP] APNs credentials incomplete: set APNS_TEAM_ID, APNS_KEY_ID and APNS_VOIP_P8_PATH.');
     }
-    if (restaurantTopic || fallbackTopic) {
-        logger.info(`[VoIP] APNs ready: topic=${restaurantTopic || fallbackTopic} env=${isApnsProduction() ? 'production' : 'sandbox'}`);
+    if (keyPathValue && !keyPath) {
+        logger.warn('[VoIP] .p8 file not found: VoIP sends will fail until APNS_VOIP_P8_PATH points to it.');
     }
+    if (keyFileName && keyId && keyFileName.toUpperCase() !== keyId.toUpperCase()) {
+        logger.warn(`[VoIP] Key ID mismatch: APNS_KEY_ID=${keyId} but the .p8 file is AuthKey_${keyFileName}.p8. Apple will reject with InvalidProviderToken.`);
+    }
+    if (!restaurantTopic && fallbackTopic && process.env.APNS_VOIP_TOPIC?.includes('tuggo')) {
+        logger.warn(`[VoIP] Fallback topic ${fallbackTopic} looks like another app. Remove APNS_VOIP_TOPIC if it is not the Bhookingo app.`);
+    }
+    logger.info('[VoIP] ====================================');
 };
 
 export const listOwnerVoipTargets = async ({ ownerType, ownerId } = {}) => {
@@ -170,6 +216,9 @@ export const sendVoipPushNotification = async (tokens, payload = {}, options = {
 
     const client = getApnsClient();
     const topic = getVoipTopic(options.ownerType);
+    const apnsHost = getApnsAuthority();
+
+    logger.info(`[VoIP] Sending VoIP push | owner=${options.ownerType || 'UNKNOWN'} | devices=${uniqueTokens.length} | topic=${topic} | host=${apnsHost} | title="${payload.title || ''}" | orderId=${payload.orderId || payload.data?.orderId || 'n/a'}`);
 
     const alertTitle = sanitizeString(payload.title || 'New order request');
     const alertBody = sanitizeString(payload.body || 'You have a new order request.');
@@ -230,21 +279,24 @@ export const sendVoipPushNotification = async (tokens, payload = {}, options = {
         req.on('end', () => {
             const apnsId = responseHeaders['apns-id'] || 'n/a';
             if (statusCode >= 200 && statusCode < 300) {
-                logger.info(`[VoIP] APNs accepted [${statusCode}] apns-id=${apnsId} token=...${token.slice(-6)} topic=${topic}`);
+                logger.info(`[VoIP] DELIVERED to APNs [${statusCode}] device=${maskToken(token)} apns-id=${apnsId}`);
                 resolveResult({ token, ok: true, apnsId, statusCode });
                 return;
             }
-            logger.warn(`[VoIP] APNs rejected [${statusCode}] apns-id=${apnsId} token=...${token.slice(-6)} topic=${topic} error=${responseBody}`);
+            const { reason, hint } = describeApnsReason(responseBody);
+            logger.warn(`[VoIP] REJECTED by APNs [${statusCode}] device=${maskToken(token)} reason=${reason} apns-id=${apnsId}`);
+            logger.warn(`[VoIP]   why: ${hint}`);
             resolveResult({
                 token,
                 ok: false,
                 remove: statusCode === 400 || statusCode === 410,
                 statusCode,
+                reason,
                 error: responseBody || `APNs send failed (${statusCode || 'unknown'})`,
             });
         });
         req.on('error', (error) => {
-            logger.error(`[VoIP] APNs request error for token ...${token.slice(-6)}: ${error?.message || error}`);
+            logger.error(`[VoIP] NETWORK ERROR sending to device=${maskToken(token)}: ${error?.message || error}`);
             resolveResult({ token, ok: false, remove: false, error: error?.message || String(error) });
         });
         req.end(JSON.stringify(bodyPayload));
@@ -252,7 +304,7 @@ export const sendVoipPushNotification = async (tokens, payload = {}, options = {
 
     const successCount = results.filter((result) => result.ok).length;
     const failureCount = results.length - successCount;
-    logger.info(`[VoIP] Batch: ${successCount} delivered, ${failureCount} failed (topic=${topic})`);
+    logger.info(`[VoIP] RESULT owner=${options.ownerType || 'UNKNOWN'} | delivered=${successCount} | failed=${failureCount} | topic=${topic}`);
     return { successCount, failureCount, results };
 };
 
@@ -280,8 +332,10 @@ export const removeStaleVoipTokens = async (ownerType, ownerId, results = []) =>
 export const sendVoipNotificationToOwner = async ({ ownerType, ownerId, payload } = {}) => {
     const { iosVoipTokens } = await listOwnerVoipTargets({ ownerType, ownerId });
     if (!iosVoipTokens.length) {
+        logger.warn(`[VoIP] SKIPPED for ${ownerType}:${ownerId}: no iOS device with a voipToken. The iPhone must call POST /fcm/voip/save after login.`);
         return { successCount: 0, failureCount: 0, results: [], skipped: true };
     }
+    logger.info(`[VoIP] Found ${iosVoipTokens.length} iOS VoIP device(s) for ${ownerType}:${ownerId}`);
 
     const result = await sendVoipPushNotification(iosVoipTokens, payload, { ownerType });
     await removeStaleVoipTokens(ownerType, ownerId, result.results);

@@ -252,6 +252,9 @@ export async function notifyRestaurantNewOrder(orderDoc) {
     };
 
     // iOS: VoIP push rings CallKit even when the app is killed.
+    const orderLabel = `order=${orderMongoId} restaurant=${orderDoc.restaurantId}`;
+    logger.info(`[VoIP] New order ring flow started | ${orderLabel} | total=Rs.${total} | items=${items.length}`);
+
     let voipDelivered = false;
     try {
       const voip = await sendVoipNotificationToOwner({
@@ -260,8 +263,15 @@ export async function notifyRestaurantNewOrder(orderDoc) {
         payload: notification,
       });
       voipDelivered = voip.successCount > 0;
+      if (voip.skipped) {
+        logger.warn(`[VoIP] No VoIP ring for ${orderLabel}; falling back to FCM for mobile`);
+      } else if (voipDelivered) {
+        logger.info(`[VoIP] iPhone ring delivered for ${orderLabel} (${voip.successCount}/${voip.results.length} device(s)); skipping mobile FCM to avoid a double ring`);
+      } else {
+        logger.warn(`[VoIP] iPhone ring FAILED for ${orderLabel} (0/${voip.results.length} device(s)); falling back to FCM for mobile`);
+      }
     } catch (error) {
-      logger.warn(`VoIP order ring failed: ${error?.message || error}`);
+      logger.error(`[VoIP] ring error for ${orderLabel}: ${error?.message || error}. Falling back to FCM for mobile.`);
     }
 
     // Web push always goes out. Mobile FCM goes out only when no iPhone got the VoIP ring,
@@ -270,14 +280,16 @@ export async function notifyRestaurantNewOrder(orderDoc) {
       [{ ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId, platform: "web" }],
       notification,
     );
+    logger.info(`[Push] Web FCM sent for ${orderLabel}`);
     if (!voipDelivered) {
       await notifyOwnersSafely(
         [{ ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId, platform: "mobile" }],
         notification,
       );
     }
-  } catch {
+  } catch (error) {
     // Do not block order/payment flow if notification fails.
+    logger.error(`[Push] New order notification flow crashed: ${error?.message || error}`);
   }
 }
 

@@ -195,6 +195,7 @@ router.post('/voip/save', authMiddleware, async (req, res, next) => {
 
         doc.pushDevices = devices.slice(-10);
         await doc.save();
+        console.log(`[VoIP] Registered iOS VoIP token for ${ownerType}:${ownerId} (device=${deviceId || 'n/a'}, token=...${voipToken.slice(-6)}, total devices=${doc.pushDevices.length})`);
 
         return res.status(200).json({
             success: true,
