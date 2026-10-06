@@ -100,24 +100,70 @@ router.post('/save', authMiddleware, async (req, res, next) => {
     }
 });
 
+// Single save endpoint for the mobile app.
+// Body: { token?: string (FCM), voipToken?: string (PushKit, iOS only) }
+// At least one of token / voipToken is required.
 router.post('/mobile/save', authMiddleware, async (req, res, next) => {
     try {
         const { ownerType, ownerId } = getOwnerContext(req);
-        const token = String(req.body?.token || '').trim();
+        const token = String(req.body?.token || req.body?.fcmToken || '').trim();
+        const voipToken = String(req.body?.voipToken || '').trim();
 
         if (!ownerType || !ownerId) {
             return sendError(res, 401, 'Authentication required');
         }
-
-        if (!token) {
-            return sendError(res, 400, 'FCM token is required');
+        if (!token && !voipToken) {
+            return sendError(res, 400, 'token (FCM) or voipToken is required');
         }
 
-        await upsertFirebaseDeviceToken({ ownerType, ownerId, token, platform: 'mobile' });
+        if (token) {
+            await upsertFirebaseDeviceToken({ ownerType, ownerId, token, platform: 'mobile' });
+        }
+
+        if (voipToken) {
+            if (!mongoose.Types.ObjectId.isValid(ownerId)) {
+                return sendError(res, 400, 'Invalid user ID format');
+            }
+            const model = ownerType === 'RESTAURANT' ? FoodRestaurant : ownerType === 'USER' ? FoodUser : null;
+            if (!model) {
+                return sendError(res, 400, `VoIP registration is not supported for role ${ownerType}`);
+            }
+
+            const doc = await model.findById(ownerId);
+            if (!doc) {
+                return sendError(res, 404, 'Account not found');
+            }
+
+            const devices = Array.isArray(doc.pushDevices) ? doc.pushDevices.map((d) => d.toObject?.() || d) : [];
+            const index = devices.findIndex((d) => d.voipToken === voipToken);
+            const previous = index >= 0 ? devices[index] : {};
+            const updated = {
+                ...previous,
+                voipToken,
+                ...(token ? { fcmToken: token } : {}),
+                pushPlatform: 'mobile',
+                devicePlatform: 'ios',
+                appRole: ownerType,
+                lastSeenAt: new Date(),
+            };
+            if (index >= 0) devices[index] = updated;
+            else devices.push(updated);
+
+            doc.pushDevices = devices.slice(-10);
+            await doc.save();
+            console.log(`[VoIP] Registered iOS VoIP token for ${ownerType}:${ownerId} (token=...${voipToken.slice(-6)}, total devices=${doc.pushDevices.length})`);
+        }
+
         return res.status(200).json({
             success: true,
-            message: 'Mobile FCM token saved successfully',
-            data: { ownerType, ownerId, platform: 'mobile' }
+            message: 'Mobile push tokens saved successfully',
+            data: {
+                ownerType,
+                ownerId,
+                platform: 'mobile',
+                fcmSaved: Boolean(token),
+                voipSaved: Boolean(voipToken),
+            }
         });
     } catch (error) {
         next(error);
@@ -147,84 +193,23 @@ const handleRemoveToken = async (req, res, next) => {
 router.delete('/remove', authMiddleware, handleRemoveToken);
 router.delete('/remove/:token', authMiddleware, handleRemoveToken);
 
-// iOS app registers its PushKit VoIP token here (after login and whenever iOS refreshes it).
-router.post('/voip/save', authMiddleware, async (req, res, next) => {
+router.delete('/voip/remove', authMiddleware, async (req, res, next) => {
     try {
         const { ownerType, ownerId } = getOwnerContext(req);
-        const voipToken = String(req.body?.voipToken || '').trim();
-        const fcmToken = String(req.body?.fcmToken || req.body?.token || '').trim();
-        const deviceId = String(req.body?.deviceId || '').trim();
+        const voipToken = String(req.body?.voipToken || req.query?.voipToken || '').trim();
 
         if (!ownerType || !ownerId) {
             return sendError(res, 401, 'Authentication required');
-        }
-        if (!mongoose.Types.ObjectId.isValid(ownerId)) {
-            return sendError(res, 400, 'Invalid user ID format');
         }
         if (!voipToken) {
             return sendError(res, 400, 'voipToken is required');
         }
 
         const model = ownerType === 'RESTAURANT' ? FoodRestaurant : ownerType === 'USER' ? FoodUser : null;
-        if (!model) {
-            return sendError(res, 400, `VoIP registration is not supported for role ${ownerType}`);
-        }
-
-        const doc = await model.findById(ownerId);
-        if (!doc) {
-            return sendError(res, 404, 'Account not found');
-        }
-
-        const devices = Array.isArray(doc.pushDevices) ? doc.pushDevices.map((d) => d.toObject?.() || d) : [];
-        const index = devices.findIndex((d) =>
-            (deviceId && d.deviceId === deviceId) || (voipToken && d.voipToken === voipToken)
-        );
-        const previous = index >= 0 ? devices[index] : {};
-        const updated = {
-            ...previous,
-            voipToken,
-            ...(fcmToken ? { fcmToken } : {}),
-            ...(deviceId ? { deviceId } : {}),
-            pushPlatform: 'mobile',
-            devicePlatform: 'ios',
-            appRole: ownerType,
-            lastSeenAt: new Date(),
-        };
-        if (index >= 0) devices[index] = updated;
-        else devices.push(updated);
-
-        doc.pushDevices = devices.slice(-10);
-        await doc.save();
-        console.log(`[VoIP] Registered iOS VoIP token for ${ownerType}:${ownerId} (device=${deviceId || 'n/a'}, token=...${voipToken.slice(-6)}, total devices=${doc.pushDevices.length})`);
-
-        return res.status(200).json({
-            success: true,
-            message: 'VoIP token saved',
-            data: { ownerType, ownerId, devicePlatform: 'ios' }
-        });
-    } catch (error) {
-        next(error);
-    }
-});
-
-router.delete('/voip/remove', authMiddleware, async (req, res, next) => {
-    try {
-        const { ownerType, ownerId } = getOwnerContext(req);
-        const voipToken = String(req.body?.voipToken || req.query?.voipToken || '').trim();
-        const deviceId = String(req.body?.deviceId || req.query?.deviceId || '').trim();
-
-        if (!ownerType || !ownerId) {
-            return sendError(res, 401, 'Authentication required');
-        }
-        if (!voipToken && !deviceId) {
-            return sendError(res, 400, 'voipToken or deviceId is required');
-        }
-
-        const model = ownerType === 'RESTAURANT' ? FoodRestaurant : ownerType === 'USER' ? FoodUser : null;
         if (model) {
             await model.updateOne(
                 { _id: ownerId },
-                { $pull: { pushDevices: { ...(voipToken ? { voipToken } : {}), ...(deviceId && !voipToken ? { deviceId } : {}) } } }
+                { $pull: { pushDevices: { voipToken } } }
             );
         }
 

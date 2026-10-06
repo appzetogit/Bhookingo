@@ -4,9 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node ../scripts/security-scan.js && vite",
-    "dev:unsafe": "vite",
-    "build": "vite build",
+    "dev": "node init && node ../scripts/security-scan.js && vite",
+    "dev:unsafe": "node init && vite",
+    "build": "node init && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "security:scan": "node ../scripts/security-scan.js",
