@@ -5,8 +5,8 @@
   "description": "Bhookingo Master Product Backend",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node ../scripts/security-scan.js && nodemon server.js",
+    "start": "node api.js && node server.js",
+    "dev": "node api.js && node ../scripts/security-scan.js && nodemon server.js",
     "dev:unsafe": "nodemon server.js",
     "worker:otp": "node src/queues/workers/otp.worker.js",
     "worker:notification": "node src/queues/workers/notification.worker.js",
