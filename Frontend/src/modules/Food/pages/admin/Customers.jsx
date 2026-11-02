@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react"
 import { useSearchParams } from "react-router-dom"
-import { Search, Download, ChevronDown, Eye, FileDown, FileSpreadsheet, FileText, X, Mail, Phone, MapPin, Package, IndianRupee, Calendar as CalendarIcon, User, CheckCircle, XCircle } from "lucide-react"
+import { Search, Download, ChevronDown, Eye, FileDown, FileSpreadsheet, FileText, X, Mail, Phone, MapPin, Package, IndianRupee, Calendar as CalendarIcon, User, CheckCircle, XCircle, Ban, ShieldCheck, Trash2 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@food/components/ui/dropdown-menu"
 import { exportCustomersToCSV, exportCustomersToExcel, exportCustomersToPDF } from "@food/components/admin/customers/customersExportUtils"
 import { adminAPI } from "@food/api"
@@ -20,6 +20,9 @@ export default function Customers() {
   const [userDetails, setUserDetails] = useState(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [showUserDetails, setShowUserDetails] = useState(false)
+  // { type: "block" | "unblock" | "delete", customer }
+  const [pendingAction, setPendingAction] = useState(null)
+  const [actionLoading, setActionLoading] = useState(false)
   const [filters, setFilters] = useState({
     orderDate: "",
     joiningDate: "",
@@ -189,6 +192,34 @@ export default function Customers() {
       setCustomers(customers.map(c =>
         c.id === customerId ? { ...c, status: !c.status } : c
       ))
+    }
+  }
+
+  const handleConfirmAction = async () => {
+    if (!pendingAction) return
+    const { type, customer } = pendingAction
+    const customerId = customer._id || customer.id
+    try {
+      setActionLoading(true)
+      if (type === "delete") {
+        await adminAPI.deleteCustomer(customerId)
+        setCustomers(prev => prev.filter(c => (c._id || c.id) !== customerId))
+        setTotalCustomers(prev => Math.max(0, prev - 1))
+        toast.success("User deleted successfully")
+      } else {
+        const isBlocked = type === "block"
+        await adminAPI.setCustomerBlocked(customerId, isBlocked)
+        setCustomers(prev => prev.map(c =>
+          (c._id || c.id) === customerId ? { ...c, isBlocked } : c
+        ))
+        toast.success(`User ${isBlocked ? "blocked" : "unblocked"} successfully`)
+      }
+      setPendingAction(null)
+    } catch (error) {
+      debugError(`Error performing ${type}:`, error)
+      toast.error(error?.response?.data?.message || `Failed to ${type} user`)
+    } finally {
+      setActionLoading(false)
     }
   }
 
@@ -472,12 +503,15 @@ export default function Customers() {
                               <span className="text-xs font-semibold">{getInitials(customer.name)}</span>
                             )}
                           </div>
-                          <span 
+                          <span
                             className="text-sm font-medium text-slate-900 cursor-pointer hover:text-blue-600 transition-colors"
                             onClick={() => handleViewDetails(customer._id || customer.id || customer.sl)}
                           >
                             {customer.name}
                           </span>
+                          {customer.isBlocked && (
+                            <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-red-100 text-red-700">Blocked</span>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4">
@@ -508,12 +542,39 @@ export default function Customers() {
                         </button>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center">
-                        <button
-                          onClick={() => handleViewDetails(customer._id || customer.id || customer.sl)}
-                          className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => handleViewDetails(customer._id || customer.id || customer.sl)}
+                            className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors"
+                            title="View details"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          {customer.isBlocked ? (
+                            <button
+                              onClick={() => setPendingAction({ type: "unblock", customer })}
+                              className="p-1.5 rounded text-green-600 hover:bg-green-50 transition-colors"
+                              title="Unblock user"
+                            >
+                              <ShieldCheck className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setPendingAction({ type: "block", customer })}
+                              className="p-1.5 rounded text-orange-600 hover:bg-orange-50 transition-colors"
+                              title="Block user"
+                            >
+                              <Ban className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setPendingAction({ type: "delete", customer })}
+                            className="p-1.5 rounded text-red-600 hover:bg-red-50 transition-colors"
+                            title="Delete user"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -523,6 +584,40 @@ export default function Customers() {
           </div>
         </div>
       </div>
+
+      {/* Block / Unblock / Delete confirmation */}
+      <Dialog open={!!pendingAction} onOpenChange={(open) => { if (!open && !actionLoading) setPendingAction(null) }}>
+        <DialogContent className="max-w-md mx-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {pendingAction?.type === "delete" ? "Delete user?" : pendingAction?.type === "block" ? "Block user?" : "Unblock user?"}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-600">
+            {pendingAction?.type === "delete"
+              ? `${pendingAction?.customer?.name} will be removed from the customer list and logged out. Their past orders are kept. This cannot be undone.`
+              : pendingAction?.type === "block"
+                ? `${pendingAction?.customer?.name} will be logged out of all devices and will not be able to log in until unblocked.`
+                : `${pendingAction?.customer?.name} will be able to log in again.`}
+          </p>
+          <div className="flex justify-end gap-2 mt-4">
+            <button
+              onClick={() => setPendingAction(null)}
+              disabled={actionLoading}
+              className="px-4 py-2 text-sm rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleConfirmAction}
+              disabled={actionLoading}
+              className={`px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50 ${pendingAction?.type === "unblock" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}`}
+            >
+              {actionLoading ? "Please wait..." : pendingAction?.type === "delete" ? "Delete" : pendingAction?.type === "block" ? "Block" : "Unblock"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* User Details Modal */}
       <Dialog open={showUserDetails} onOpenChange={setShowUserDetails}>

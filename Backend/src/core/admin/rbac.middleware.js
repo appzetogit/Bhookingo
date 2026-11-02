@@ -71,6 +71,8 @@ export const dynamicRbacMiddleware = (req, res, next) => {
     if (path.startsWith('/customers')) {
         if (method === 'GET') return check('users', 'view');
         if (method === 'PATCH' && path.includes('/status')) return check('users', 'suspend');
+        if (method === 'PATCH' && path.includes('/block')) return check('users', 'suspend');
+        if (method === 'DELETE') return check('users', 'delete');
         return check('users', 'edit');
     }
 

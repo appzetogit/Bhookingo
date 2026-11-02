@@ -1381,7 +1381,7 @@ export async function getCustomers(query = {}) {
     const page = Math.max(parseInt(query.page, 10) || 1, 1);
     const skip = (page - 1) * limit;
 
-    const filter = { role: 'USER' };
+    const filter = { role: 'USER', deletedByAdmin: { $ne: true } };
 
     if (query.status) {
         if (String(query.status) === 'active') filter.isActive = true;
@@ -1420,7 +1420,7 @@ export async function getCustomers(query = {}) {
             .sort(sort)
             .skip(skip)
             .limit(limit)
-            .select('name email phone countryCode isVerified isActive createdAt profileImage')
+            .select('name email phone countryCode isVerified isActive isBlocked createdAt profileImage')
             .lean(),
         FoodUser.countDocuments(filter)
     ]);
@@ -1467,6 +1467,7 @@ export async function getCustomers(query = {}) {
             countryCode: u.countryCode || '+91',
             status: u.isActive !== false,
             isActive: u.isActive !== false,
+            isBlocked: u.isBlocked === true,
             isVerified: u.isVerified === true,
             totalOrder: stats.totalOrder,
             totalOrderAmount: stats.totalOrderAmount,
@@ -1537,6 +1538,43 @@ export async function updateCustomerStatus(id, isActive) {
         await FoodRefreshToken.deleteMany({ userId: updated._id });
     }
     return updated;
+}
+
+export async function setCustomerBlocked(id, isBlocked) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const blocked = Boolean(isBlocked);
+    const updatedDoc = await FoodUser.findOneAndUpdate(
+        { _id: id, role: 'USER', deletedByAdmin: { $ne: true } },
+        { $set: { isBlocked: blocked, blockedAt: blocked ? new Date() : null } },
+        { new: true }
+    );
+    if (!updatedDoc) return null;
+    if (blocked) {
+        // Log the user out of every device immediately.
+        await FoodRefreshToken.deleteMany({ userId: updatedDoc._id });
+    }
+    return updatedDoc.toObject();
+}
+
+// Soft delete: orders keep their userId reference, the phone number is freed for a
+// fresh signup, and the old record cannot be restored from the app.
+export async function deleteCustomerByAdmin(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    const doc = await FoodUser.findOne({ _id: id, role: 'USER', deletedByAdmin: { $ne: true } });
+    if (!doc) return null;
+    const suffix = `_deleted_${Date.now()}`;
+    if (doc.phone) doc.phone = `${doc.phone}${suffix}`;
+    if (doc.email) doc.email = `${doc.email}${suffix}`;
+    doc.googleId = undefined;
+    doc.isActive = false;
+    doc.deletedByAdmin = true;
+    doc.deletedAt = new Date();
+    doc.fcmTokens = [];
+    doc.fcmTokenMobile = [];
+    doc.pushDevices = [];
+    await doc.save();
+    await FoodRefreshToken.deleteMany({ userId: doc._id });
+    return { id: doc._id };
 }
 
 export async function getSupportTickets(query = {}) {
@@ -4395,3 +4433,35 @@ export async function confirmRecoveryVerify(adminId, adminEmail, type, value, ot
     return { success: true };
 }
 
+
+
+/**
+ * Block a restaurant from the app (admin action). A blocked restaurant cannot
+ * log in (see auth.service), stops accepting orders, and its push tokens are
+ * cleared. Unblock restores it to 'pending' so the admin can re-approve.
+ */
+export async function blockRestaurant(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    return FoodRestaurant.findByIdAndUpdate(
+        id,
+        {
+            $set: {
+                status: 'blocked',
+                blockedAt: new Date(),
+                isAcceptingOrders: false,
+                fcmTokens: [],
+                fcmTokenMobile: []
+            }
+        },
+        { new: true, runValidators: false }
+    ).lean();
+}
+
+export async function unblockRestaurant(id) {
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) return null;
+    return FoodRestaurant.findByIdAndUpdate(
+        id,
+        { $set: { status: 'pending', blockedAt: null } },
+        { new: true, runValidators: false }
+    ).lean();
+}

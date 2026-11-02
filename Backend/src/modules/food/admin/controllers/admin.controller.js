@@ -48,6 +48,41 @@ export async function updateCustomerStatus(req, res, next) {
     }
 }
 
+export async function updateCustomerBlock(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid customer id' });
+        }
+        if (typeof req.body?.isBlocked !== 'boolean') {
+            return res.status(400).json({ success: false, message: 'isBlocked must be true or false' });
+        }
+        const updated = await adminService.setCustomerBlocked(id, req.body.isBlocked);
+        if (!updated) return res.status(404).json({ success: false, message: 'Customer not found' });
+        res.status(200).json({
+            success: true,
+            message: updated.isBlocked ? 'Customer blocked successfully' : 'Customer unblocked successfully',
+            data: { user: updated, customer: updated }
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function deleteCustomer(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid customer id' });
+        }
+        const deleted = await adminService.deleteCustomerByAdmin(id);
+        if (!deleted) return res.status(404).json({ success: false, message: 'Customer not found' });
+        res.status(200).json({ success: true, message: 'Customer deleted successfully', data: deleted });
+    } catch (error) {
+        next(error);
+    }
+}
+
 // ----- Safety / Emergency Reports -----
 export async function getSafetyEmergencyReports(req, res, next) {
     try {
@@ -1361,3 +1396,36 @@ export async function resolveMapsLink(req, res, next) {
     }
 }
 
+
+
+export async function blockRestaurant(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid restaurant id' });
+        }
+        const restaurant = await adminService.blockRestaurant(id);
+        if (!restaurant) {
+            return res.status(404).json({ success: false, message: 'Restaurant not found' });
+        }
+        res.status(200).json({ success: true, message: 'Restaurant blocked successfully', data: restaurant });
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function unblockRestaurant(req, res, next) {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid restaurant id' });
+        }
+        const restaurant = await adminService.unblockRestaurant(id);
+        if (!restaurant) {
+            return res.status(404).json({ success: false, message: 'Restaurant not found' });
+        }
+        res.status(200).json({ success: true, message: 'Restaurant unblocked successfully', data: restaurant });
+    } catch (error) {
+        next(error);
+    }
+}

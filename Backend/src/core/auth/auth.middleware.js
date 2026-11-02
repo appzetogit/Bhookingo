@@ -37,7 +37,10 @@ export const authMiddleware = (req, res, next) => {
 
             if (decoded.role === 'USER') {
                 // Enforce active status in real-time - deactivated users are logged out on next request.
-                FoodUser.findById(decoded.userId).select('isActive').lean().then((doc) => {
+                FoodUser.findById(decoded.userId).select('isActive isBlocked').lean().then((doc) => {
+                    if (doc && doc.isBlocked === true) {
+                        return sendError(res, 401, 'Your account has been blocked. Please contact support.');
+                    }
                     if (!doc || doc.isActive === false) {
                         return sendError(res, 401, 'User account is deactivated');
                     }

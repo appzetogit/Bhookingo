@@ -167,6 +167,21 @@ const userSchema = new mongoose.Schema(
             default: true,
             index: true
         },
+        // Set by admin; a blocked user cannot log in or restore their account.
+        isBlocked: {
+            type: Boolean,
+            default: false,
+            index: true
+        },
+        blockedAt: {
+            type: Date,
+            default: null
+        },
+        // Set when an admin deletes the account; hidden from the admin customer list.
+        deletedByAdmin: {
+            type: Boolean,
+            default: false
+        },
         role: {
             type: String,
             default: 'USER'

@@ -104,7 +104,12 @@ export const verifyUserOtpAndLogin = async (
 ) => {
   const trimmedName = typeof name === "string" ? name.trim() : "";
   const existingUser = await FoodUser.findOne({ phone });
-  
+
+  // Blocked by admin: refuse before the OTP is consumed or any restore/new flow runs.
+  if (existingUser && existingUser.isBlocked === true) {
+    throw new AuthError("Your account has been blocked. Please contact support.");
+  }
+
   // Decide if we should preserve the OTP record for a subsequent Restore/New action
   const isDeletedAccount = existingUser && existingUser.isActive === false;
   
@@ -355,6 +360,10 @@ export const googleLoginUser = async (credential, fcmToken = null, platform = "w
 
   let isNewUser = false;
   let userDoc = existingUser;
+
+  if (userDoc && userDoc.isBlocked === true) {
+     throw new AuthError("Your account has been blocked. Please contact support.");
+  }
 
   if (userDoc && userDoc.isActive === false) {
      throw new AuthError("Your account has been deactivated. Please contact support.");
@@ -693,6 +702,11 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
     }
   }
 
+  // Blocked restaurants cannot log in at all (admin action).
+  if (restaurant.status === "blocked") {
+    throw new AuthError("Your restaurant account has been blocked by the admin. Please contact support.");
+  }
+
   // If restaurant is deleted, block login. Pending and rejected restaurants are allowed to log in so they can view status and resubmit.
   if (restaurant.status && restaurant.status === "deleted") {
     const message = "Your restaurant account has been deleted.";
@@ -705,6 +719,25 @@ export const verifyRestaurantOtpAndLogin = async (phone, otp, fcmToken, platform
   const refreshToken = signRefreshToken(payload);
   const ttlMs = ms(config.jwtRefreshExpiresIn || "7d");
   const expiresAt = new Date(Date.now() + ttlMs);
+
+  // Single active device per restaurant. Dropping every previous refresh-token
+  // session forces the device that was logged in before to log out: its 15-min
+  // access token can no longer be refreshed (the stored refresh token is gone).
+  // We also clear its stale mobile FCM tokens so new-order pushes only ever
+  // target the device logging in now (the app re-registers its token right
+  // after login via /fcm-tokens/mobile/save).
+  await FoodRefreshToken.deleteMany({ userId: restaurant._id });
+  await FoodRestaurant.updateOne(
+    { _id: restaurant._id },
+    {
+      $set: {
+        fcmTokenMobile:
+          typeof fcmToken === "string" && fcmToken.trim()
+            ? [fcmToken.trim()]
+            : [],
+      },
+    },
+  );
 
   await FoodRefreshToken.create({
     userId: restaurant._id,

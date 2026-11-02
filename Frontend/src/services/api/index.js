@@ -279,6 +279,18 @@ export const adminAPI = {
       { reason },
       { contextModule: "admin" },
     ),
+  blockRestaurant: (id) =>
+    apiClient.patch(
+      `/food/admin/restaurants/${id}/block`,
+      {},
+      { contextModule: "admin" },
+    ),
+  unblockRestaurant: (id) =>
+    apiClient.patch(
+      `/food/admin/restaurants/${id}/unblock`,
+      {},
+      { contextModule: "admin" },
+    ),
 
 
 
@@ -516,6 +528,16 @@ export const adminAPI = {
       { isActive: isActive !== false },
       { contextModule: "admin" },
     ),
+  setCustomerBlocked: (id, isBlocked) =>
+    apiClient.patch(
+      `/food/admin/customers/${String(id)}/block`,
+      { isBlocked: isBlocked === true },
+      { contextModule: "admin" },
+    ),
+  deleteCustomer: (id) =>
+    apiClient.delete(`/food/admin/customers/${String(id)}`, {
+      contextModule: "admin",
+    }),
   /** Orders (admin) ? list, get by id, manage orders */
   getOrders: (params = {}) =>
     apiClient.get("/food/admin/orders", {
