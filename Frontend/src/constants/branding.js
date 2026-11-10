@@ -1,1 +1,0 @@
-export const BHOOKINGO_LOGO = "/bhookingo-logo.png";

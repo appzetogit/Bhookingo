@@ -1,0 +1,1 @@
+import{j as i,m as n}from"./index-CyihCnVh.js";import{u as a,E as e,M as s}from"./tokens-ClYFycWF.js";function m({children:o,className:t=""}){return a()?i.jsx("div",{className:t,children:o}):i.jsx(n.div,{initial:{opacity:0,y:6},animate:{opacity:1,y:0},exit:{opacity:0,y:-4},transition:{duration:s.interaction,ease:e.smooth},className:t,children:o})}export{m as P};

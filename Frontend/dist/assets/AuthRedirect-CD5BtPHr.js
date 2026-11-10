@@ -1,0 +1,1 @@
+import{i as u,j as t,N as i}from"./index-CyihCnVh.js";function c({children:o,module:e,redirectTo:r=null}){const s=u(e),a={user:"/food/user",restaurant:"/food/restaurant",admin:"/food/admin"};if(s){const n=r||a[e]||"/food/user";return t.jsx(i,{to:n,replace:!0})}return t.jsx(t.Fragment,{children:o})}export{c as A};

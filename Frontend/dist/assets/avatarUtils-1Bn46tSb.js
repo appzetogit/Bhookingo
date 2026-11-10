@@ -1,0 +1,1 @@
+function h(t){const o=["#F59E0B","#10B981","#3B82F6","#8B5CF6","#EC4899","#06B6D4","#F97316","#6366F1","#14B8A6","#84CC16"];if(!t||typeof t!="string")return o[0];let r=0;for(let e=0;e<t.length;e++)r=t.charCodeAt(e)+((r<<5)-r);return o[Math.abs(r)%o.length]}export{h as g};
