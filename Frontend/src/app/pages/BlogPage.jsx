@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import LandingHeader from '../components/LandingHeader';
+import { openStoreChoice } from '@/shared/storeChoice';
 import LandingFooter from '../components/LandingFooter';
+import Seo from '@/shared/components/Seo';
 import PageTransition from '@/shared/components/motion/PageTransition';
 import { EASING, MOTION_RULES } from '@/shared/motion/tokens';
 import { useReducedMotionSafe } from '@/shared/motion/useReducedMotionSafe';
@@ -199,6 +201,11 @@ export default function BlogPage() {
 
   return (
     <div className="landing-shell min-h-screen flex flex-col text-[color:var(--landing-text)]">
+      <Seo
+        title="Blog | Bhookingo Highway Food & Travel Guides"
+        description="Highway food guides, road-trip tips and travel stories from Bhookingo — from the best food stops on NH 48 to smarter ways to eat well on India's highways."
+        path="/blog"
+      />
       <LandingHeader />
 
       <PageTransition>
@@ -637,7 +644,7 @@ export default function BlogPage() {
 
                     <div className="flex flex-wrap gap-3 lg:col-span-4 lg:justify-end">
                       <button
-                        onClick={() => window.open('https://play.google.com/store/apps/details?id=com.bhookingo.user', '_blank')}
+                        onClick={openStoreChoice}
                         className="landing-button-primary flex items-center gap-2 rounded-full px-6 py-3 text-xs sm:text-sm font-extrabold uppercase tracking-[0.18em] group active:scale-95 shadow-md"
                       >
                         <span>Download App</span>

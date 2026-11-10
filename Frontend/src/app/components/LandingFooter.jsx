@@ -38,7 +38,7 @@ export default function LandingFooter() {
   }, []);
 
   const handleAuthClick = () => {
-    window.open("https://play.google.com/store/apps/details?id=com.bhookingo.user", "_blank");
+    window.open("https://play.google.com/store/apps/details?id=com.bhookingo.user1", "_blank");
   };
 
   const handleExploreWebClick = () => {
@@ -143,14 +143,14 @@ export default function LandingFooter() {
                 </div>
               </button>
               <button
-                onClick={handleAuthClick}
+                onClick={() => window.open('https://apps.apple.com/au/app/bhookingo/id6812318525', '_blank')}
                 className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/8 p-3 text-white transition-colors hover:bg-white/14"
               >
                 <svg className="h-6 w-6 fill-current text-gray-300" viewBox="0 0 24 24">
                   <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C3.8 16.32 3.98 9.58 8.1 9.28c1.37.1 2.2.78 3.03.8.84-.02 1.86-.8 3.42-.65 1.64.16 2.82.88 3.5 1.95-3.22 1.88-2.69 6.08.28 7.3-.7 1.76-1.52 3.48-3.28 3.6zM12.03 9.25c-.15-2.23 1.66-4.14 3.75-4.25.2 2.52-2.1 4.54-3.75 4.25z" />
                 </svg>
                 <div className="text-left">
-                  <span className="block text-[8px] uppercase tracking-[0.18em] text-[#8d8078]">Download on the</span>
+                  <span className="block text-[8px] uppercase tracking-[0.18em] text-[#8d8078]">GET IT ON</span>
                   <span className="text-sm font-semibold leading-none">App Store</span>
                 </div>
               </button>

@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { motion, useScroll, useTransform } from 'framer-motion';
-import { Flame, Smartphone, Search, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Flame, Smartphone, Search, ArrowRight, ShieldCheck, Apple } from 'lucide-react';
 import HighwayRouteVisual from './HighwayRouteVisual';
 import InteractivePhoneMockup from './InteractivePhoneMockup';
 import FloatingFeatureCards from './FloatingFeatureCards';
@@ -147,31 +147,35 @@ export default function HeroSection({
               initial={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.3 }}
-              className="mt-5 sm:mt-6 flex flex-wrap items-center gap-3"
+              className="mt-5 sm:mt-6 flex items-stretch gap-3 max-w-[480px]"
             >
-              {/* Primary Download Button */}
+              {/* Android / Google Play — same row, same size */}
               <motion.button
                 onClick={onDownloadClick}
                 whileHover={{ y: -2 }}
                 whileTap={{ scale: 0.97 }}
-                className="relative group overflow-hidden rounded-full bg-gradient-to-r from-[#E0332F] via-[#D62828] to-[#C72420] px-6 sm:px-7 py-3 sm:py-3.5 text-xs sm:text-sm font-bold uppercase tracking-wider text-white shadow-[0_8px_25px_rgba(224,51,47,0.35)] hover:shadow-[0_12px_32px_rgba(224,51,47,0.55)] transition-all flex items-center gap-2 cursor-pointer"
+                className="flex-1 rounded-full bg-gradient-to-r from-[#E0332F] via-[#D62828] to-[#C72420] px-3 sm:px-5 py-3 sm:py-3.5 text-[11px] sm:text-sm font-bold tracking-wide text-white shadow-[0_8px_25px_rgba(224,51,47,0.35)] hover:shadow-[0_12px_32px_rgba(224,51,47,0.55)] transition-all flex items-center justify-center gap-2 cursor-pointer"
                 style={{ fontFamily: 'var(--font-ui)' }}
               >
-                <Smartphone className="w-3.5 h-3.5 transition-transform duration-200 group-hover:rotate-12" />
-                <span>Download App</span>
-                <ArrowRight className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-1" />
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none">
+                  <path d="M3.25 2.3c-.15.15-.25.38-.25.68v18.04c0 .3.1.53.25.68l.08.08L13.5 12.18v-.18L3.33 2.22l-.08.08z" fill="#00d7ff" />
+                  <path d="M16.89 15.63l-3.39-3.39v-.18l3.39-3.39.08.05 4.01 2.28c1.15.65 1.15 1.73 0 2.38l-4.01 2.28-.08-.03z" fill="#ff3a44" />
+                  <path d="M13.59 12.09L3.33 22.25c.38.4 1 .33 1.55.02l12.01-6.84-3.3-3.34z" fill="#00e676" />
+                  <path d="M13.59 12.09l3.3-3.34-12.01-6.84c-.55-.31-1.17-.38-1.55.02l10.26 10.16z" fill="#ffca00" />
+                </svg>
+                <span>Download for Android</span>
               </motion.button>
 
-              {/* Secondary Browse on Web Button */}
+              {/* iOS / App Store — same row, same size */}
               <motion.button
-                onClick={onBrowseWebClick}
+                onClick={() => window.open('https://apps.apple.com/au/app/bhookingo/id6812318525', '_blank')}
                 whileHover={{ y: -2 }}
                 whileTap={{ scale: 0.97 }}
-                className="rounded-full border border-white/20 bg-white/10 hover:bg-white/15 px-6 sm:px-7 py-3 sm:py-3.5 text-xs sm:text-sm font-bold tracking-wider text-white shadow-lg backdrop-blur-md transition-all flex items-center gap-2 cursor-pointer"
+                className="flex-1 rounded-full border border-white/20 bg-black/70 hover:bg-black/85 px-3 sm:px-5 py-3 sm:py-3.5 text-[11px] sm:text-sm font-bold tracking-wide text-white shadow-lg backdrop-blur-md transition-all flex items-center justify-center gap-2 cursor-pointer"
                 style={{ fontFamily: 'var(--font-ui)' }}
               >
-                <Search className="w-3.5 h-3.5 text-slate-300" />
-                <span>Browse on Web</span>
+                <Apple className="w-4 h-4 shrink-0 fill-white" />
+                <span>Download on App Store</span>
               </motion.button>
             </motion.div>
 

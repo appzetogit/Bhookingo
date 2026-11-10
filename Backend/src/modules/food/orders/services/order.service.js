@@ -761,9 +761,27 @@ export async function cancelOrder(orderId, userId, reason, refundDestination = "
   });
   if (!order) throw new NotFoundError("Order not found");
 
-  const allowed = ["created"];
+  const allowed = ["created", "confirmed"];
   if (!allowed.includes(order.orderStatus))
     throw new ValidationError("Order cannot be cancelled");
+
+  // `confirmed` is cancellable only until the restaurant (or an admin) has
+  // actually accepted the order. The backend overloads `confirmed` for payment
+  // verification, so status alone can't distinguish "paid, awaiting acceptance"
+  // from "accepted" — detect acceptance from who authored a move into
+  // `confirmed` (mirrors the user app's isAcceptedByRestaurant).
+  if (order.orderStatus === "confirmed") {
+    const acceptedByRestaurant =
+      Array.isArray(order.statusHistory) &&
+      order.statusHistory.some(
+        (h) =>
+          h &&
+          h.to === "confirmed" &&
+          ["RESTAURANT", "ADMIN"].includes(String(h.byRole || "").toUpperCase())
+      );
+    if (acceptedByRestaurant)
+      throw new ValidationError("Order cannot be cancelled");
+  }
 
   const from = order.orderStatus;
   order.orderStatus = "cancelled_by_user";
@@ -975,9 +993,17 @@ export async function submitOrderRatings(orderId, userId, dto) {
   };
 
   const restaurantFacilities = order.restaurantId?.facilities || {};
+  // Washroom and EV charging are reported by customers for every restaurant;
+  // the others only count where the restaurant has declared the facility.
+  const CUSTOMER_REPORTED_FACILITIES = ['washroom', 'evCharging'];
   FACILITIES_CONFIG.forEach(fac => {
     const facKey = fac.key;
-    const isSupported = restaurantFacilities[facKey] === true;
+    // `facilities.<key>` is a `{ available, rating }` subdocument, never a
+    // bare `true`, so the old `=== true` check silently dropped every
+    // facility rating. Legacy boolean values are still accepted.
+    const entry = restaurantFacilities[facKey];
+    const isDeclared = entry === true || entry?.available === true;
+    const isSupported = isDeclared || CUSTOMER_REPORTED_FACILITIES.includes(facKey);
     if (isSupported && dto[facKey]) {
       order.ratings[facKey] = {
         rating: typeof dto[facKey].rating === 'number' ? dto[facKey].rating : null,
@@ -1195,7 +1221,11 @@ export async function updateOrderStatusRestaurant(
             phone = user?.phone;
           }
           if (phone) {
-            await sendOrderSms(phone, otpCode);
+            // Disabled: the customer's 6-digit pickup OTP is already shown in
+            // the user app ("SHOW THIS CODE TO THE RESTAURANT"), so texting it
+            // too is redundant. The 4-digit login OTP (auth) and the receiver
+            // OTP for "order for someone else" are intentionally unaffected.
+            // await sendOrderSms(phone, otpCode);
           }
         }
       }

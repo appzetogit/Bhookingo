@@ -292,13 +292,16 @@ const restaurantSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "approved", "rejected", "deleted"],
+      enum: ["pending", "approved", "rejected", "deleted", "blocked"],
       default: "pending",
     },
     approvedAt: {
       type: Date,
     },
     rejectedAt: {
+      type: Date,
+    },
+    blockedAt: {
       type: Date,
     },
     rejectionReason: {

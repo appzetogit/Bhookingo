@@ -42,7 +42,7 @@ export default function BottomCtaSection({ onAuthClick }) {
           <div className="flex flex-wrap items-center justify-center gap-3 shrink-0" style={{ fontFamily: 'var(--font-ui)' }}>
             {/* Google Play Button */}
             <motion.button
-              onClick={onAuthClick}
+              onClick={() => window.open('https://play.google.com/store/apps/details?id=com.bhookingo.user1', '_blank')}
               whileHover={{ y: -2 }}
               whileTap={{ scale: 0.97 }}
               className="bg-black hover:bg-slate-900 text-white px-5 py-3 rounded-xl border border-white/20 flex items-center gap-3 shadow-lg transition-all group cursor-pointer"
@@ -85,7 +85,7 @@ export default function BottomCtaSection({ onAuthClick }) {
 
             {/* App Store Button */}
             <motion.button
-              onClick={onAuthClick}
+              onClick={() => window.open('https://apps.apple.com/au/app/bhookingo/id6812318525', '_blank')}
               whileHover={{ y: -2 }}
               whileTap={{ scale: 0.97 }}
               className="bg-black hover:bg-slate-900 text-white px-6 py-3.5 rounded-2xl border border-white/20 flex items-center gap-3.5 shadow-xl transition-all group cursor-pointer"
@@ -94,7 +94,7 @@ export default function BottomCtaSection({ onAuthClick }) {
                 <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C3.8 16.32 3.98 9.58 8.1 9.28c1.37.1 2.2.78 3.03.8.84-.02 1.86-.8 3.42-.65 1.64.16 2.82.88 3.5 1.95-3.22 1.88-2.69 6.08.28 7.3-.7 1.76-1.52 3.48-3.28 3.6zM12.03 9.25c-.15-2.23 1.66-4.14 3.75-4.25.2 2.52-2.1 4.54-3.75 4.25z" />
               </svg>
               <div className="text-left">
-                <span className="text-[10px] uppercase tracking-wider block text-slate-400 font-bold">DOWNLOAD ON THE</span>
+                <span className="text-[10px] uppercase tracking-wider block text-slate-400 font-bold">GET IT ON</span>
                 <span className="text-sm font-bold leading-none text-white">App Store</span>
               </div>
             </motion.button>

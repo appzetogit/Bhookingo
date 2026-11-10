@@ -21,9 +21,9 @@ const sendSmsViaIndiaHub = async (phone, otp) => {
         const digits = String(phone || '').replace(/\D/g, '');
         const msisdn = digits.startsWith('91') ? digits : `91${digits}`;
 
-        // EXACT DLT TEMPLATE provided by user:
-        // "Welcome to the ##var## powered by Appzeto.Your OTP for registration is ##var##.BGADEC"
-        const message = `Welcome to the Bhookingo powered by Appzeto.Your OTP for registration is ${otp}.BGADEC`;
+        // EXACT DLT TEMPLATE — must match the registered TRAI DLT template
+        // 1077104580057767222 (sender BGADPL) exactly, or the operator drops it:
+        const message = `Welcome to Bhookingo, powered by Appzeto. Your OTP for registration ${otp}. This OTP is valid for 10 minutes. Please do not share it with anyone.BGADPL`;
 
         // SMS India Hub HTTP GET API — query param names are case-sensitive per SOP
         const url = new URL('http://cloud.smsindiahub.in/vendorsms/pushsms.aspx');
@@ -224,7 +224,8 @@ export const verifyOtp = async (phone, otp, preserveOtp = false) => {
 
     // Static OTP Bypass: In dev/test mode with USE_DEFAULT_OTP=true, 
     // we allow '1234' unconditionally to avoid any formatting or database issues.
-    if (config.useDefaultOtp && otp === '1234') {
+    const _testPhones = String(config.testPhone || '').split(',').map((p) => normalizePhoneForOtp(p)).filter((p) => p.length === 10);
+    if ((_testPhones.includes(normalizedPhone) || config.useDefaultOtp) && otp === (config.testOtp || '1234')) {
         console.info(`✅ [OTP-Verify] Static OTP '1234' ABSOLUTE BYPASS for ${phone}`);
         if (record && !preserveOtp) {
             await record.deleteOne(); // Reset the request limit for successful logins

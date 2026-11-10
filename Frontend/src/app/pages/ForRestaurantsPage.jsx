@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import LandingHeader from '../components/LandingHeader';
+import { openStoreChoice } from '@/shared/storeChoice';
 import LandingFooter from '../components/LandingFooter';
+import Seo from '@/shared/components/Seo';
 import PageTransition from '@/shared/components/motion/PageTransition';
 import TiltCard from '@/shared/components/motion/TiltCard';
 import { EASING, MOTION_RULES } from '@/shared/motion/tokens';
@@ -34,7 +36,7 @@ export default function ForRestaurantsPage() {
   const [activeAppTab, setActiveAppTab] = useState('appView');
   const [dailyOrders, setDailyOrders] = useState(60);
 
-  const partnerLink = 'https://play.google.com/store/apps/details?id=com.bhookingo.restaurant&hl=en';
+  const partnerLink = '/food/restaurant/login';
 
   const benefitsList = [
     {
@@ -87,6 +89,11 @@ export default function ForRestaurantsPage() {
 
   return (
     <div className="landing-shell min-h-screen flex flex-col text-[color:var(--landing-text)]">
+      <Seo
+        title="For Restaurants | Partner with Bhookingo"
+        description="Partner with Bhookingo to reach highway travelers passing your location. Win more orders, speed up turnarounds, and manage everything from a simple partner app built for roadside restaurants & dhabas."
+        path="/for-restaurants"
+      />
       <LandingHeader />
 
       <PageTransition>
@@ -141,7 +148,7 @@ export default function ForRestaurantsPage() {
                   className="flex flex-wrap items-center gap-3 mt-5 sm:mt-6"
                 >
                   <button
-                    onClick={() => window.open(partnerLink, '_blank')}
+                    onClick={() => openStoreChoice('restaurant')}
                     className="landing-button-primary flex items-center gap-2 rounded-full px-6 sm:px-7 py-3 text-xs sm:text-sm font-bold uppercase tracking-wider text-white shadow-[0_8px_25px_rgba(224,51,47,0.35)] hover:shadow-[0_12px_32px_rgba(224,51,47,0.55)] transition-all active:scale-95 group cursor-pointer"
                   >
                     <Store className="h-4 w-4" />
@@ -207,7 +214,7 @@ export default function ForRestaurantsPage() {
                       {/* Phone Screen Image */}
                       <div className="overflow-hidden rounded-[26px] bg-white aspect-[9/19]">
                         <img
-                          src="/assets/images/how-step2-restaurants.png"
+                          src="/assets/images/app-restaurants-home.jpg"
                           alt="Bhookingo Highway Restaurant Discovery"
                           className="w-full h-full object-cover object-top"
                           loading="eager"
@@ -311,13 +318,7 @@ export default function ForRestaurantsPage() {
                 </p>
               </div>
 
-              <button
-                onClick={() => window.open(partnerLink, '_blank')}
-                className="flex items-center gap-1.5 rounded-full bg-[#1b130f] px-5 py-2.5 text-[11px] font-extrabold uppercase tracking-[0.16em] text-white transition-all hover:bg-[color:var(--landing-accent)] shadow-sm shrink-0 group active:scale-95"
-              >
-                <span>Partner With Us</span>
-                <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1" />
-              </button>
+
             </div>
 
             {/* 3 Core Benefit Cards */}
@@ -349,15 +350,7 @@ export default function ForRestaurantsPage() {
                       </p>
                     </div>
 
-                    <div className="pt-4 mt-3 border-t border-[color:var(--landing-line)]">
-                      <button
-                        onClick={() => window.open(partnerLink, '_blank')}
-                        className="w-full flex items-center justify-between rounded-full bg-gray-50 px-4 py-2.5 text-[11px] font-extrabold uppercase tracking-[0.14em] text-gray-800 transition-all duration-300 group-hover:bg-[#E0332F] group-hover:text-white cursor-pointer active:scale-95"
-                      >
-                        <span>Learn More</span>
-                        <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1" />
-                      </button>
-                    </div>
+
                   </motion.div>
                 );
               })}
@@ -368,76 +361,7 @@ export default function ForRestaurantsPage() {
         {/* ========================================================================= */}
         {/* INTERACTIVE RESTAURANT REVENUE ESTIMATOR                                  */}
         {/* ========================================================================= */}
-        <section className="border-y border-[color:var(--landing-line)] bg-[linear-gradient(180deg,#fff8f7_0%,#fff2f2_100%)] py-10 md:py-14">
-          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-            <div className="grid gap-8 lg:grid-cols-12 items-center">
-              <div className="lg:col-span-6 space-y-3">
-                <span className="landing-section-label text-[11px] font-extrabold text-[color:var(--landing-accent)]">
-                  REVENUE SIMULATOR
-                </span>
-                <h2 className="landing-subtitle text-2xl sm:text-3xl font-black text-[color:var(--landing-text)]">
-                  Estimate Your Monthly
-                  <span className="text-[color:var(--landing-accent)]"> Highway Growth</span>
-                </h2>
-                <p className="text-xs sm:text-sm leading-relaxed text-[color:var(--landing-text-muted)]">
-                  See how accepting pre-orders from highway travelers transforms empty tables into high-volume, predictable revenue.
-                </p>
 
-                <div className="space-y-3 pt-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs sm:text-sm font-bold text-gray-800">Daily Highway Pre-Orders:</span>
-                    <span className="text-lg sm:text-xl font-black text-[color:var(--landing-accent)] font-[var(--font-display)]">
-                      {dailyOrders} Orders / Day
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min="15"
-                    max="200"
-                    step="5"
-                    value={dailyOrders}
-                    onChange={(e) => setDailyOrders(Number(e.target.value))}
-                    className="w-full h-2 bg-red-100 rounded-lg appearance-none cursor-pointer accent-[#E0332F]"
-                  />
-                  <div className="flex justify-between text-[10px] font-bold text-gray-400">
-                    <span>15 orders (Small Dhaba)</span>
-                    <span>100 orders (Food Court)</span>
-                    <span>200+ orders (Highway Hub)</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Estimated Metric Cards */}
-              <div className="lg:col-span-6 grid sm:grid-cols-2 gap-3.5">
-                <div className="rounded-2xl border border-red-200/70 bg-white p-5 shadow-2xs">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-50 text-[color:var(--landing-accent)]">
-                    <DollarSign className="h-4.5 w-4.5" />
-                  </div>
-                  <div className="pt-3 text-[11px] font-bold uppercase tracking-wider text-gray-500">
-                    Est. Monthly Revenue
-                  </div>
-                  <div className="pt-0.5 font-[var(--font-display)] text-2xl font-black text-gray-900">
-                    ₹{estimatedRevenue}
-                  </div>
-                  <p className="pt-1.5 text-[11px] text-gray-500">Based on average ₹320 highway ticket size</p>
-                </div>
-
-                <div className="rounded-2xl border border-emerald-200/70 bg-white p-5 shadow-2xs">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-                    <Clock className="h-4.5 w-4.5" />
-                  </div>
-                  <div className="pt-3 text-[11px] font-bold uppercase tracking-wider text-gray-500">
-                    Kitchen Hours Saved
-                  </div>
-                  <div className="pt-0.5 font-[var(--font-display)] text-2xl font-black text-gray-900">
-                    {savedMinutes} mins
-                  </div>
-                  <p className="pt-1.5 text-[11px] text-gray-500">Faster turnarounds and prepped meals</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
 
         {/* ========================================================================= */}
         {/* HOW ONBOARDING WORKS (3 SIMPLE STEPS)                                     */}
@@ -499,13 +423,7 @@ export default function ForRestaurantsPage() {
                 </div>
 
                 <div className="flex flex-wrap gap-3 lg:col-span-4 lg:justify-end">
-                  <button
-                    onClick={() => window.open(partnerLink, '_blank')}
-                    className="landing-button-primary flex items-center gap-2 rounded-full px-6 py-3 text-xs sm:text-sm font-extrabold uppercase tracking-[0.18em] group active:scale-95 shadow-md"
-                  >
-                    <span>Partner With Us</span>
-                    <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
-                  </button>
+
                 </div>
               </div>
             </div>

@@ -251,6 +251,33 @@ export async function notifyRestaurantNewOrder(orderDoc) {
       },
     };
 
+    const displayId = String(orderDoc.order_id || orderMongoId);
+    const itemCount = items.reduce((sum, it) => sum + (Number(it?.quantity) || 1), 0);
+    // Data-only mobile push: the restaurant app draws its native new-order
+    // overlay from these fields. A notification block would make Android render
+    // a plain tray alert instead and skip the overlay while backgrounded.
+    const mobileNotification = {
+      title,
+      body,
+      dataOnly: true,
+      apnsSound: "tujh_bin.mp3",
+      data: {
+        type: "new_order",
+        orderId: orderMongoId,
+        orderMongoId,
+        orderDisplayId: displayId,
+        customerName: orderDoc.customerName || orderDoc.receiverName || "",
+        itemCount: String(itemCount),
+        itemsList,
+        address: orderDoc.receiverAddressText || "",
+        total: String(total),
+        paymentMethod: orderDoc.payment?.method || "",
+        title,
+        body,
+        link: `/restaurant/orders/${orderMongoId}`,
+      },
+    };
+
     // iOS: VoIP push rings CallKit even when the app is killed.
     const orderLabel = `order=${orderMongoId} restaurant=${orderDoc.restaurantId}`;
     logger.info(`[VoIP] New order ring flow started | ${orderLabel} | total=Rs.${total} | items=${items.length}`);
@@ -281,12 +308,17 @@ export async function notifyRestaurantNewOrder(orderDoc) {
       notification,
     );
     logger.info(`[Push] Web FCM sent for ${orderLabel}`);
-    if (!voipDelivered) {
-      await notifyOwnersSafely(
-        [{ ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId, platform: "mobile" }],
-        notification,
-      );
-    }
+    // Always send the Android/mobile FCM push. The VoIP ring above only
+    // covers iOS CallKit; gating the FCM push on VoIP delivery starved every
+    // ANDROID device whenever the restaurant also had a (often stale) iOS VoIP
+    // token registered — the backend logged "skipping mobile FCM" and the
+    // Android phone got no new-order alert at all (no overlay, notification or
+    // ring). A rare double-ring on an iPhone that has both tokens is far better
+    // than Android silently missing orders.
+    await notifyOwnersSafely(
+      [{ ownerType: "RESTAURANT", ownerId: orderDoc.restaurantId, platform: "mobile" }],
+      mobileNotification,
+    );
   } catch (error) {
     // Do not block order/payment flow if notification fails.
     logger.error(`[Push] New order notification flow crashed: ${error?.message || error}`);

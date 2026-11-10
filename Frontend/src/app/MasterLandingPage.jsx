@@ -1,5 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import Seo from '@/shared/components/Seo';
 import LandingHeader from './components/LandingHeader';
 import LandingFooter from './components/LandingFooter';
 import HeroSection from './components/landing/HeroSection';
@@ -14,7 +15,7 @@ export default function MasterLandingPage() {
   const navigate = useNavigate();
 
   const handleAuthClick = () => {
-    window.open("https://play.google.com/store/apps/details?id=com.bhookingo.user", "_blank");
+    window.open("https://play.google.com/store/apps/details?id=com.bhookingo.user1", "_blank");
   };
 
   const openConsumerExperience = (path, webFallbackPath = "/user/auth/login") => {
@@ -22,11 +23,11 @@ export default function MasterLandingPage() {
     const isAndroid = /android/i.test(userAgent);
     const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !window.MSStream;
 
-    const playStoreUrl = "https://play.google.com/store/apps/details?id=com.bhookingo.user";
+    const playStoreUrl = "https://play.google.com/store/apps/details?id=com.bhookingo.user1";
     const appSchemeUrl = `bhookingo://${path}`;
 
     if (isAndroid) {
-      const intentUrl = `intent://${path}#Intent;scheme=bhookingo;package=com.bhookingo.user;S.browser_fallback_url=${encodeURIComponent(playStoreUrl)};end`;
+      const intentUrl = `intent://${path}#Intent;scheme=bhookingo;package=com.bhookingo.user1;S.browser_fallback_url=${encodeURIComponent(playStoreUrl)};end`;
       window.location.href = intentUrl;
       return;
     }
@@ -52,6 +53,11 @@ export default function MasterLandingPage() {
 
   return (
     <div className="landing-shell min-h-screen flex flex-col text-slate-900 bg-[#FCFAF7] selection:bg-[#E0332F] selection:text-white">
+      <Seo
+        title="Bhookingo | India's First Highway Food Platform"
+        description="Pre-order hot meals from verified highway restaurants & dhabas with Bhookingo. Discover food stops ahead on your route, reserve dine-in, and check washroom, parking & EV-charging info — India's first highway food platform."
+        path="/"
+      />
       {/* 1. Floating Animated Navbar */}
       <LandingHeader />
 

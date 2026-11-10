@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import LandingHeader from '../components/LandingHeader';
+import { openStoreChoice } from '@/shared/storeChoice';
 import LandingFooter from '../components/LandingFooter';
+import Seo from '@/shared/components/Seo';
 import PageTransition from '@/shared/components/motion/PageTransition';
 import { EASING, MOTION_RULES } from '@/shared/motion/tokens';
 import { useReducedMotionSafe } from '@/shared/motion/useReducedMotionSafe';
@@ -47,6 +49,8 @@ export default function ContactPage() {
     message: ""
   });
   const [formSubmitted, setFormSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const [openFaqIndex, setOpenFaqIndex] = useState(0);
 
   useEffect(() => {
@@ -75,23 +79,35 @@ export default function ContactPage() {
     fetchContactInfo();
   }, []);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const subject = encodeURIComponent(`[${inquiryType}] Website Inquiry from ${formData.name}`);
-    const body = encodeURIComponent(
-      [
-        `Inquiry Type: ${inquiryType}`,
-        `Name: ${formData.name}`,
-        `Phone: ${formData.phone}`,
-        `Email: ${formData.email}`,
-        "",
-        "Message:",
-        formData.message
-      ].join("\n")
-    );
-
-    window.location.href = `mailto:${contactInfo.email}?subject=${subject}&body=${body}`;
-    setFormSubmitted(true);
+    if (submitting) return;
+    setSubmitError('');
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/v1/food/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.name,
+          phone: formData.phone,
+          email: formData.email,
+          message: formData.message,
+          inquiryType,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        setFormData({ name: '', phone: '', email: '', message: '' });
+        setFormSubmitted(true);
+      } else {
+        setSubmitError(data.message || 'Could not send your message. Please try again.');
+      }
+    } catch (err) {
+      setSubmitError('Could not send your message. Please check your connection and try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const officeAddressLine = [
@@ -132,6 +148,11 @@ export default function ContactPage() {
 
   return (
     <div className="landing-shell min-h-screen flex flex-col text-[color:var(--landing-text)]">
+      <Seo
+        title="Contact Us | Bhookingo"
+        description="Get in touch with the Bhookingo team for support, restaurant partnerships, or questions about highway food ordering across India."
+        path="/contact"
+      />
       <LandingHeader />
 
       <PageTransition>
@@ -436,11 +457,15 @@ export default function ContactPage() {
 
                       <button
                         type="submit"
+                        disabled={submitting}
                         className="w-full landing-button-primary flex items-center justify-center gap-2 rounded-full py-3 text-xs font-extrabold uppercase tracking-[0.16em] shadow-md transition-all active:scale-95 group"
                       >
-                        <span>Send Message</span>
+                        <span>{submitting ? 'Sending…' : 'Send Message'}</span>
                         <Send className="w-3.5 h-3.5 transition-transform duration-300 group-hover:translate-x-1" />
                       </button>
+                      {submitError && (
+                        <p className="mt-3 text-xs font-semibold text-red-600 text-center">{submitError}</p>
+                      )}
                     </form>
                   )}
                 </div>
@@ -635,7 +660,7 @@ export default function ContactPage() {
 
                 <div className="flex flex-wrap gap-3 lg:col-span-4 lg:justify-end">
                   <button
-                    onClick={() => window.open('https://play.google.com/store/apps/details?id=com.bhookingo.user', '_blank')}
+                    onClick={openStoreChoice}
                     className="landing-button-primary flex items-center gap-2 rounded-full px-6 py-3 text-xs sm:text-sm font-extrabold uppercase tracking-[0.18em] group active:scale-95 shadow-md"
                   >
                     <span>Download App</span>

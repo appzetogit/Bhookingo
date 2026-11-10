@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { openStoreChoice } from '@/shared/storeChoice';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   MapPin,
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react';
 import LandingHeader from '../components/LandingHeader';
 import LandingFooter from '../components/LandingFooter';
+import Seo from '@/shared/components/Seo';
 import PageTransition from '@/shared/components/motion/PageTransition';
 import { EASING, MOTION_RULES } from '@/shared/motion/tokens';
 import { useReducedMotionSafe } from '@/shared/motion/useReducedMotionSafe';
@@ -196,23 +198,7 @@ function FeatureCard({
         </div>
       </div>
 
-      {/* Bottom Action Button with Animated Arrow */}
-      <div className="relative z-10 pt-6 mt-4 border-t border-[color:var(--landing-line)]">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onExplore(index);
-          }}
-          className={`w-full flex items-center justify-between rounded-full px-5 py-3 text-xs font-extrabold uppercase tracking-[0.14em] transition-all duration-300 active:scale-95 cursor-pointer font-[var(--font-ui)] ${
-            isSelected
-              ? 'bg-[color:var(--landing-accent)] text-white shadow-md'
-              : 'bg-[#FAF7F4] text-[#1B130E] border border-[color:var(--landing-line)] group-hover:bg-[color:var(--landing-accent)] group-hover:text-white group-hover:border-[color:var(--landing-accent)] shadow-xs'
-          }`}
-        >
-          <span>{isSelected ? 'Selected' : 'Explore Feature'}</span>
-          <ArrowRight className="h-4 w-4 transition-transform duration-300 ease-out group-hover:translate-x-1.5" />
-        </button>
-      </div>
+
     </div>
   );
 }
@@ -313,11 +299,16 @@ export default function FeaturesPage() {
     : featuresList.filter(f => f.category === activeCategory);
 
   const openUserFlow = () => {
-    navigate('/user/auth/login');
+    // Intentionally does nothing — these buttons must not navigate.
   };
 
   return (
     <div className="landing-shell min-h-screen flex flex-col text-[color:var(--landing-text)]">
+      <Seo
+        title="Features | Bhookingo Highway Food Platform"
+        description="Explore Bhookingo's features — route-aware restaurant discovery, live Drive Mode, pre-ordering, secure payments, and washroom, parking & EV-charging info built for highway travelers."
+        path="/features"
+      />
       <LandingHeader />
 
       <PageTransition>
@@ -372,12 +363,11 @@ export default function FeaturesPage() {
                   className="flex flex-wrap items-center gap-3 mt-5 sm:mt-6"
                 >
                   <button
-                    onClick={openUserFlow}
+                    onClick={openStoreChoice}
                     className="landing-button-primary flex items-center gap-2 rounded-full px-6 sm:px-7 py-3 text-xs sm:text-sm font-bold uppercase tracking-wider text-white shadow-[0_8px_25px_rgba(224,51,47,0.35)] hover:shadow-[0_12px_32px_rgba(224,51,47,0.55)] transition-all active:scale-95 group cursor-pointer"
                   >
                     <Smartphone className="h-4 w-4 transition-transform group-hover:rotate-12" />
                     <span>Try Platform Free</span>
-                    <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
                   </button>
                   <a
                     href="#features-catalog"
@@ -498,16 +488,7 @@ export default function FeaturesPage() {
                       </div>
                     </div>
 
-                    <div className="pt-3 border-t border-white/10 mt-3 flex items-center justify-between font-[var(--font-ui)]">
-                      <span className="text-[11px] text-[#d8c7bb]">Ready to test on your highway?</span>
-                      <button
-                        onClick={openUserFlow}
-                        className="text-[11px] font-bold text-[#FF8582] flex items-center gap-1 hover:text-white transition-colors cursor-pointer"
-                      >
-                        <span>Open Map</span>
-                        <ArrowRight className="h-3 w-3" />
-                      </button>
-                    </div>
+
                   </div>
                 </div>
               </motion.div>
@@ -724,11 +705,10 @@ export default function FeaturesPage() {
 
                 <div className="flex flex-wrap gap-4 lg:col-span-4 lg:justify-end">
                   <button
-                    onClick={openUserFlow}
+                    onClick={openStoreChoice}
                     className="landing-button-primary flex items-center gap-2 rounded-full px-8 py-4 text-sm font-extrabold uppercase tracking-[0.18em] group active:scale-95"
                   >
                     <span>Open Bhookingo</span>
-                    <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1.5" />
                   </button>
                 </div>
               </div>

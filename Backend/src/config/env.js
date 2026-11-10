@@ -35,6 +35,10 @@ export const config = {
     otpRateLimit: Number(process.env.OTP_RATE_LIMIT || (process.env.NODE_ENV === 'production' ? 3 : 100)),
     otpRateWindow: Number(process.env.OTP_RATE_WINDOW || (process.env.NODE_ENV === 'production' ? 600 : 60)),
     useDefaultOtp: process.env.USE_DEFAULT_OTP === 'true',
+    // Test phone(s) that accept the static TEST_OTP ('1234') — comma-separated
+    // list in TEST_PHONE. Used by the OTP verify bypass in otp.service.js.
+    testPhone: process.env.TEST_PHONE,
+    testOtp: process.env.TEST_OTP || '1234',
 
     // MSG91
     msg91AuthKey: process.env.MSG91_AUTH_KEY,

@@ -107,17 +107,6 @@ export default function ExploreModesSection({
               </div>
             </div>
 
-            {/* Action Button */}
-            <motion.button
-              onClick={onDriveModeClick}
-              whileHover={{ y: -2 }}
-              whileTap={{ scale: 0.97 }}
-              className="w-full rounded-xl bg-gradient-to-r from-[#E0332F] via-[#D62828] to-[#C72420] py-3 px-5 text-xs sm:text-sm font-bold uppercase tracking-wider text-white shadow-md shadow-red-600/30 flex items-center justify-center gap-2 group-hover:shadow-red-600/50 transition-all cursor-pointer"
-              style={{ fontFamily: 'var(--font-ui)' }}
-            >
-              <span>Start Drive Mode</span>
-              <Navigation2 className="w-3.5 h-3.5 fill-white" />
-            </motion.button>
           </motion.div>
 
           {/* Card 2: Search Mode (Explore by City / Name) */}
@@ -166,17 +155,6 @@ export default function ExploreModesSection({
               </div>
             </div>
 
-            {/* Action Button */}
-            <motion.button
-              onClick={onSearchModeClick}
-              whileHover={{ y: -2 }}
-              whileTap={{ scale: 0.97 }}
-              className="w-full rounded-xl border-2 border-emerald-600 bg-white py-3 px-5 text-xs sm:text-sm font-bold uppercase tracking-wider text-emerald-700 shadow-sm hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center gap-2 cursor-pointer"
-              style={{ fontFamily: 'var(--font-ui)' }}
-            >
-              <span>Explore Restaurants</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </motion.button>
           </motion.div>
 
         </div>

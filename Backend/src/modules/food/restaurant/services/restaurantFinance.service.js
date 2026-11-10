@@ -85,6 +85,7 @@ export async function getRestaurantFinance(restaurantId, query = {}) {
         status: { $in: ['captured', 'authorized'] },
         createdAt: { $gte: nowWindow.start, $lte: nowWindow.end }
     })
+        .populate('orderId', 'orderId pricing items orderStatus payment')
         .sort({ createdAt: -1 })
         .lean();
 
@@ -106,7 +107,8 @@ export async function getRestaurantFinance(restaurantId, query = {}) {
             payout: tx.amounts?.restaurantShare || 0,
             commission: tx.amounts?.restaurantCommission || 0,
             paymentMethod: tx.paymentMethod || order?.payment?.method,
-            status: tx.status
+            status: tx.status,
+            orderStatus: order?.orderStatus || ''
         };
     });
 
@@ -176,6 +178,7 @@ export async function getRestaurantFinance(restaurantId, query = {}) {
             status: { $in: ['captured', 'authorized'] },
             createdAt: { $gte: startDate, $lte: endDate }
         })
+            .populate('orderId', 'orderId pricing items orderStatus payment')
             .sort({ createdAt: -1 })
             .lean();
 
@@ -198,7 +201,8 @@ export async function getRestaurantFinance(restaurantId, query = {}) {
                 payout: tx.amounts?.restaurantShare || 0,
                 commission: tx.amounts?.restaurantCommission || 0,
                 paymentMethod: tx.paymentMethod || order?.payment?.method,
-                status: tx.status
+                status: tx.status,
+                orderStatus: order?.orderStatus || ''
             };
         });
 

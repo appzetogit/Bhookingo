@@ -1,4 +1,5 @@
 import { getDrivingSettings, updateDrivingSettings, getRestaurantsAhead, getGoogleRouteHighwayPreview } from '../services/driving.service.js';
+import { autocompletePlaces, getPlaceDetails, geocodeAddress } from '../services/googleRoutes.service.js';
 import { ValidationError } from '../../../../core/auth/errors.js';
 
 const toFinite = (v) => {
@@ -142,6 +143,73 @@ export const getGoogleRouteHighwayController = async (req, res, next) => {
             success: true,
             data: route
         });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * GET /food/driving-mode/places-autocomplete
+ *
+ * `sessionToken` is a client-minted UUID that MUST be echoed on the matching
+ * `/place-details` call — that pairing is what makes Google bill the whole
+ * type-ahead session as one unit instead of per keystroke.
+ */
+export const placesAutocompleteController = async (req, res, next) => {
+    try {
+        const input = String(req.query.input || '').trim();
+        const sessionToken = req.query.sessionToken ? String(req.query.sessionToken) : null;
+        const predictions = await autocompletePlaces(input, sessionToken);
+        return res.status(200).json({
+            success: true,
+            data: { predictions }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * GET /food/driving-mode/place-details
+ */
+export const placeDetailsController = async (req, res, next) => {
+    try {
+        const placeId = String(req.query.placeId || '').trim();
+        const sessionToken = req.query.sessionToken ? String(req.query.sessionToken) : null;
+        if (!placeId) {
+            return res.status(400).json({ success: false, message: 'placeId is required' });
+        }
+
+        const details = await getPlaceDetails(placeId, sessionToken);
+        if (!details) {
+            return res.status(404).json({ success: false, message: 'Could not resolve that place' });
+        }
+
+        return res.status(200).json({ success: true, data: details });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * GET /food/driving-mode/geocode
+ *
+ * Last-resort text -> coordinates for a destination the user typed and
+ * submitted without picking a suggestion.
+ */
+export const geocodeController = async (req, res, next) => {
+    try {
+        const address = String(req.query.address || '').trim();
+        if (!address) {
+            return res.status(400).json({ success: false, message: 'address is required' });
+        }
+
+        const point = await geocodeAddress(address);
+        if (!point) {
+            return res.status(404).json({ success: false, message: `Could not find "${address}"` });
+        }
+
+        return res.status(200).json({ success: true, data: point });
     } catch (error) {
         next(error);
     }

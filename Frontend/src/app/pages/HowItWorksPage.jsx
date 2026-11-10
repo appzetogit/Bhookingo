@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { openStoreChoice } from '@/shared/storeChoice';
 import { motion, useScroll, useTransform, useSpring } from 'framer-motion';
 import {
   ArrowRight,
@@ -21,6 +22,7 @@ import {
 } from 'lucide-react';
 import LandingHeader from '../components/LandingHeader';
 import LandingFooter from '../components/LandingFooter';
+import Seo from '@/shared/components/Seo';
 import PageTransition from '@/shared/components/motion/PageTransition';
 import { EASING, MOTION_RULES } from '@/shared/motion/tokens';
 import { useReducedMotionSafe } from '@/shared/motion/useReducedMotionSafe';
@@ -36,7 +38,7 @@ const steps = [
     stat: 'Forward-only logic',
     tone: 'Travel flow',
     accent: 'from-[#fff1f1] to-[#ffe5e5]',
-    image: '/assets/images/how-step1-driving.png'
+    image: '/assets/images/app-driving-home.jpg'
   },
   {
     number: '02',
@@ -48,7 +50,7 @@ const steps = [
     stat: 'Cleaner decisions',
     tone: 'Better discovery',
     accent: 'from-[#fff8f3] to-[#fff0ea]',
-    image: '/assets/images/how-step2-restaurants.png'
+    image: '/assets/images/app-restaurants-home.jpg'
   },
   {
     number: '03',
@@ -60,7 +62,7 @@ const steps = [
     stat: 'Less waiting',
     tone: 'Fast ordering',
     accent: 'from-[#f8fff8] to-[#ecfff1]',
-    image: '/assets/images/how-step2-restaurants.png'
+    image: '/assets/images/app-restaurants-home.jpg'
   },
   {
     number: '04',
@@ -304,8 +306,7 @@ function ParallaxStepCard({ step, index, openUserFlow, shouldReduceMotion }) {
               onClick={openUserFlow}
               className="inline-flex items-center gap-2 rounded-full bg-[#18110D] px-5 sm:px-6 py-3 text-xs font-extrabold uppercase tracking-[0.14em] text-white shadow-md transition-all duration-300 hover:bg-[color:var(--landing-accent)] hover:shadow-lg active:scale-95 cursor-pointer font-[var(--font-ui)] group/btn"
             >
-              <span>Explore Step {step.number}</span>
-              <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover/btn:translate-x-1" />
+              <span>Step {step.number}</span>
             </button>
           </div>
         </motion.div>
@@ -367,11 +368,16 @@ export default function HowItWorksPage() {
   });
 
   const openUserFlow = () => {
-    navigate('/user/auth/login');
+    // Intentionally does nothing — these buttons must not navigate.
   };
 
   return (
     <div className="landing-shell min-h-screen flex flex-col text-[color:var(--landing-text)]">
+      <Seo
+        title="How It Works | Bhookingo Highway Food Ordering"
+        description="See how Bhookingo works — set your route or open live Drive Mode, discover verified restaurants & dhabas ahead, pre-order hot meals, and pick up without breaking your highway journey."
+        path="/how-it-works"
+      />
       <LandingHeader />
 
       <PageTransition>
@@ -409,12 +415,11 @@ export default function HowItWorksPage() {
 
                 <div className="flex flex-wrap items-center gap-3 mt-5 sm:mt-6">
                   <button
-                    onClick={openUserFlow}
+                    onClick={openStoreChoice}
                     className="landing-button-primary flex items-center gap-2 rounded-full px-6 sm:px-7 py-3 text-xs sm:text-sm font-bold uppercase tracking-wider text-white shadow-[0_8px_25px_rgba(224,51,47,0.35)] hover:shadow-[0_12px_32px_rgba(224,51,47,0.55)] transition-all active:scale-95 group cursor-pointer"
                   >
                     <Smartphone className="h-4 w-4 transition-transform group-hover:rotate-12" />
                     <span>Try Bhookingo</span>
-                    <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
                   </button>
                   <a
                     href="#journey-steps"
@@ -614,14 +619,6 @@ export default function HowItWorksPage() {
                       </div>
                     ))}
                   </div>
-
-                  <button
-                    onClick={openUserFlow}
-                    className={`mt-8 flex items-center gap-2 rounded-full px-6 py-3 text-sm font-extrabold uppercase tracking-[0.16em] transition-transform hover:-translate-y-0.5 ${index === 0 ? 'landing-button-primary text-white' : 'border border-emerald-200 bg-white text-emerald-700'}`}
-                  >
-                    <span>{path.action}</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </button>
                 </div>
               ))}
             </div>
@@ -693,11 +690,10 @@ export default function HowItWorksPage() {
 
                 <div className="flex flex-wrap gap-4 lg:col-span-4 lg:justify-end">
                   <button
-                    onClick={openUserFlow}
+                    onClick={openStoreChoice}
                     className="landing-button-primary flex items-center gap-2 rounded-full px-7 py-4 text-sm font-extrabold uppercase tracking-[0.18em]"
                   >
                     <span>Open Bhookingo</span>
-                    <ArrowRight className="h-4 w-4" />
                   </button>
                 </div>
               </div>

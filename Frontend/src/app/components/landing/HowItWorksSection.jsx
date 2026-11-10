@@ -158,7 +158,6 @@ export default function HowItWorksSection() {
                         <CheckCircle2 className="w-3 h-3" />
                         <span>Instant Sync</span>
                       </span>
-                      <ArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:translate-x-1 group-hover:text-[#E0332F] transition-all" />
                     </div>
                   </motion.div>
                 ))}

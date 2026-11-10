@@ -171,11 +171,6 @@ export default function FeaturesGridSection() {
                   {feature.desc}
                 </p>
               </div>
-
-              {/* Bottom Subtle Accent */}
-              <div className="mt-4 pt-2.5 border-t border-slate-200/60 flex items-center text-[10.5px] font-bold text-slate-400 group-hover:text-[#E0332F] transition-colors" style={{ fontFamily: 'var(--font-ui)' }}>
-                <span>Explore Feature &rarr;</span>
-              </div>
             </motion.div>
           ))}
         </motion.div>

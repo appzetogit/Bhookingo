@@ -394,26 +394,52 @@ export const registerRestaurant = async (payload, files) => {
     }
 
     const images = {};
-
-    if (files?.profileImage?.[0]) {
-        images.profileImage = await uploadImageBuffer(files.profileImage[0].buffer, 'food/restaurants/profile');
-    }
-    if (files?.panImage?.[0]) {
-        images.panImage = await uploadImageBuffer(files.panImage[0].buffer, 'food/restaurants/pan');
-    }
-    if (files?.gstImage?.[0]) {
-        images.gstImage = await uploadImageBuffer(files.gstImage[0].buffer, 'food/restaurants/gst');
-    }
-    if (files?.fssaiImage?.[0]) {
-        images.fssaiImage = await uploadImageBuffer(files.fssaiImage[0].buffer, 'food/restaurants/fssai');
-    }
-
     let menuImages = [];
-    if (files?.menuImages?.length) {
-        menuImages = await Promise.all(
-            files.menuImages.map((file) => uploadImageBuffer(file.buffer, 'food/restaurants/menu'))
+
+    // Upload every image to Cloudinary concurrently instead of one after the
+    // other. Sequential uploads of the profile + document + up to 10 menu
+    // photos were the main reason registration ran long enough for the client
+    // to time out.
+    const uploadTasks = [];
+    if (files?.profileImage?.[0]) {
+        uploadTasks.push(
+            uploadImageBuffer(files.profileImage[0].buffer, 'food/restaurants/profile').then((url) => {
+                images.profileImage = url;
+            })
         );
     }
+    if (files?.panImage?.[0]) {
+        uploadTasks.push(
+            uploadImageBuffer(files.panImage[0].buffer, 'food/restaurants/pan').then((url) => {
+                images.panImage = url;
+            })
+        );
+    }
+    if (files?.gstImage?.[0]) {
+        uploadTasks.push(
+            uploadImageBuffer(files.gstImage[0].buffer, 'food/restaurants/gst').then((url) => {
+                images.gstImage = url;
+            })
+        );
+    }
+    if (files?.fssaiImage?.[0]) {
+        uploadTasks.push(
+            uploadImageBuffer(files.fssaiImage[0].buffer, 'food/restaurants/fssai').then((url) => {
+                images.fssaiImage = url;
+            })
+        );
+    }
+    if (files?.menuImages?.length) {
+        uploadTasks.push(
+            Promise.all(
+                files.menuImages.map((file) => uploadImageBuffer(file.buffer, 'food/restaurants/menu'))
+            ).then((urls) => {
+                menuImages = urls;
+            })
+        );
+    }
+
+    await Promise.all(uploadTasks);
 
 
     const normalizedOpeningTime = normalizeRestaurantTime(openingTime);
@@ -441,7 +467,7 @@ export const registerRestaurant = async (payload, files) => {
             throw new ValidationError('Restaurant location is not near a detectable road.');
         }
 
-        const restaurant = await FoodRestaurant.create({
+        const registrationPayload = {
             restaurantName,
             restaurantNameNormalized,
             ownerName,
@@ -501,7 +527,44 @@ export const registerRestaurant = async (payload, files) => {
             },
             facilities: buildFacilitiesPayload(facilities),
             profileImage: images.profileImage
-        });
+        };
+
+        // Re-apply support: a restaurant whose previous application was rejected
+        // (or soft-deleted) re-submits through the same wizard. Instead of
+        // creating a duplicate, update that same record back to 'pending' with
+        // the fresh submission. An active (pending/approved) or blocked record
+        // with this phone cannot register again.
+        const activeByPhone = await FoodRestaurant.findOne({
+            ownerPhoneLast10,
+            status: { $in: ['pending', 'approved', 'blocked'] }
+        }).select('_id').lean();
+        if (activeByPhone) {
+            throw new ValidationError('A restaurant is already registered with this phone number.');
+        }
+        const reapplyTarget = await FoodRestaurant.findOne({
+            ownerPhoneLast10,
+            status: { $in: ['rejected', 'deleted'] }
+        }).sort({ createdAt: -1 }).select('_id').lean();
+        let restaurant;
+        if (reapplyTarget) {
+            restaurant = await FoodRestaurant.findByIdAndUpdate(
+                reapplyTarget._id,
+                {
+                    $set: {
+                        ...registrationPayload,
+                        status: 'pending',
+                        rejectionReason: '',
+                        rejectedAt: null,
+                        approvedAt: null,
+                        blockedAt: null,
+                        deletedAt: null
+                    }
+                },
+                { new: true, runValidators: false }
+            );
+        } else {
+            restaurant = await FoodRestaurant.create(registrationPayload);
+        }
 
         // Re-check nearest highway from coordinates as a safety sync for future threshold changes.
         if (wantsHighwayRestaurant) {

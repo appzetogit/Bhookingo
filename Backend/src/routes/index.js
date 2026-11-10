@@ -22,6 +22,7 @@ import webhookRoutes from '../core/payments/routes/webhook.routes.js'; // ✅ NE
 import searchRoutes from '../modules/food/search/routes/search.routes.js';
 import diningBookingRoutes from '../modules/food/dining/routes/diningBooking.routes.js';
 import drivingModeRoutes from '../modules/food/driving/routes/driving.routes.js';
+import placesRoutes from '../modules/food/driving/routes/places.routes.js';
 
 import locationRoutes from '../modules/food/location/routes/location.routes.js';
 
@@ -57,6 +58,7 @@ router.use('/v1/food/notifications', authMiddleware, privateRateLimiter, require
 router.post('/v1/food/orders/:orderId/verify-otp', authMiddleware, privateRateLimiter, requireRoles('RESTAURANT', 'ADMIN'), verifyOtpController);
 router.use('/v1/food/orders', authMiddleware, privateRateLimiter, requireRoles('USER'), orderUserRoutes);
 router.use('/v1/food/driving-mode', authMiddleware, privateRateLimiter, requireRoles('USER'), drivingModeRoutes);
+router.use('/v1/food/places', privateRateLimiter, placesRoutes);
 router.use('/v1/food/payments', authMiddleware, privateRateLimiter, paymentRoutes);
 router.use('/v1/payments/webhook', webhookRoutes); // ✅ NEW: Public Webhook
 router.use('/v1/fcm-tokens', fcmRoutes);

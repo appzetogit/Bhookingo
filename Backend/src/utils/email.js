@@ -4,7 +4,7 @@ import { logger } from './logger.js';
 
 let transporter = null;
 
-function getTransporter() {
+export function getTransporter() {
     if (transporter) return transporter;
     const { emailHost, emailPort, emailUser, emailPass } = config;
     if (!emailHost || !emailUser || !emailPass) {

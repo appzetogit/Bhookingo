@@ -5,6 +5,7 @@ import { Smartphone, Menu, X, ArrowRight, Sparkles } from 'lucide-react';
 import { BHOOKINGO_LOGO as bhookingoLogo } from "@/constants/branding";
 import { loadBusinessSettings } from "@food/utils/businessSettings";
 import BhookingoWordmark from "@/shared/components/BhookingoWordmark";
+import { openStoreChoice } from "@/shared/storeChoice";
 
 export default function LandingHeader() {
   const navigate = useNavigate();
@@ -44,7 +45,7 @@ export default function LandingHeader() {
   }, []);
 
   const handleAuthClick = () => {
-    window.open("https://play.google.com/store/apps/details?id=com.bhookingo.user", "_blank");
+    openStoreChoice('all');
   };
 
   const navLinks = [

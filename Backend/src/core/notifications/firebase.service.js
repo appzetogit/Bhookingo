@@ -21,9 +21,11 @@ const OWNER_TOKEN_FIELDS = {
     web: 'fcmTokens',
     mobile: 'fcmTokenMobile'
 };
+// No role tag is prepended to customer- or restaurant-facing notification
+// titles — the title shows exactly as composed. (Admin left as-is.)
 const OWNER_APP_PREFIXES = {
-    USER: '👤 [User]',
-    RESTAURANT: '🏪 [Shop]',
+    USER: '',
+    RESTAURANT: '',
     ADMIN: '🛡️ [Admin]'
 };
 
@@ -162,15 +164,34 @@ const buildMessagePayload = (payload = {}, token) => {
         message.data = data;
     }
 
-    message.android = {
-        priority: 'high',
-        notification: {
-            channel_id: 'default',
-            sound: 'default',
-            default_vibrate_timings: true,
-            default_light_settings: true
-        }
-    };
+    if (payload.dataOnly) {
+        // Data-only on Android is what lets the app draw its own alert: any
+        // notification block (top-level OR android.notification) makes the OS
+        // render the push itself while the app is in the background, and
+        // onMessageReceived is then never called. The restaurant app's native
+        // new-order card depends on that call.
+        message.android = { priority: 'high' };
+        // iOS has no native card, so it still gets a visible alert from APNs.
+        message.apns = {
+            headers: { 'apns-priority': '10' },
+            payload: {
+                aps: {
+                    alert: { title: notification.title, body: notification.body },
+                    sound: sanitizeString(payload.apnsSound) || 'default'
+                }
+            }
+        };
+    } else {
+        message.android = {
+            priority: 'high',
+            notification: {
+                channel_id: 'default',
+                sound: 'default',
+                default_vibrate_timings: true,
+                default_light_settings: true
+            }
+        };
+    }
 
     message.webpush = {
         headers: {
@@ -271,8 +292,12 @@ export const upsertFirebaseDeviceToken = async ({ ownerType, ownerId, token, pla
         const existingTokens = Array.isArray(doc[field]) ? doc[field] : [];
         
         // Add only if not already present
-        if (!existingTokens.includes(normalizedToken)) {
-            const tokens = normalizeTokenList([...existingTokens, normalizedToken]);
+        if (normalizedPlatform === 'mobile'
+                ? !(existingTokens.length === 1 && existingTokens[0] === normalizedToken)
+                : !existingTokens.includes(normalizedToken)) {
+            const tokens = normalizedPlatform === 'mobile'
+                ? [normalizedToken]
+                : normalizeTokenList([...existingTokens, normalizedToken]);
             doc[field] = tokens;
             await doc.save();
             // console.log(`[FCM-DEBUG] upsert - Token list updated. New count: ${tokens.length}`);

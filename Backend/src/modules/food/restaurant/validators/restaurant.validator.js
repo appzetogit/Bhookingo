@@ -1,10 +1,20 @@
 import { z } from 'zod';
 import { ValidationError } from '../../../../core/auth/errors.js';
 
-const phoneSchema = z
-    .string()
-    .min(8, 'Phone must be at least 8 digits')
-    .max(15, 'Phone must be at most 15 digits');
+const phoneSchema = z.preprocess(
+    (value) => {
+        if (value == null) return undefined;
+        const trimmed = String(value).trim();
+        // Treat a blank phone as "not provided" so .optional() applies instead
+        // of failing min(8) with a misleading "at least 8 digits" error.
+        return trimmed === '' ? undefined : trimmed;
+    },
+    z
+        .string()
+        .min(8, 'Phone must be at least 8 digits')
+        .max(15, 'Phone must be at most 15 digits')
+        .optional()
+);
 
 const emailSchema = z.string().email('Invalid email').optional().or(z.literal(''));
 const requiredBooleanSchema = z.preprocess((value) => {

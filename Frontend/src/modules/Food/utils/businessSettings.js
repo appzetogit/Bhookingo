@@ -140,10 +140,21 @@ export const updateFavicon = (url) => {
 /**
  * Update page title
  */
+// Public marketing routes manage their own per-route SEO <title> via the Seo
+// component. Skip the business-name override there so those titles persist.
+const SEO_MANAGED_ROUTES = ['/', '/how-it-works', '/features', '/for-restaurants', '/blog', '/contact'];
+
 export const updateTitle = (companyName) => {
-  if (typeof document !== 'undefined') {
-    document.title = (companyName && companyName !== "Foodelo") ? companyName : "Bhookingo";
-  }
+  if (typeof document === 'undefined') return;
+
+  try {
+    const hash = String(window.location?.hash || '');
+    const isWebRoute = !hash.startsWith('#/'); // native/webview uses hash routing
+    const path = String(window.location?.pathname || '/').replace(/\/+$/, '') || '/';
+    if (isWebRoute && SEO_MANAGED_ROUTES.includes(path)) return;
+  } catch (e) { /* fall through to default behavior */ }
+
+  document.title = (companyName && companyName !== "Foodelo") ? companyName : "Bhookingo";
 };
 
 /**

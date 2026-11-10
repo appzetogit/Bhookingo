@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react"
 import { 
-  Search, Filter, Eye, Check, X, UtensilsCrossed, ArrowUpDown, Loader2,
+  Search, Filter, Eye, Check, X, Ban, UtensilsCrossed, ArrowUpDown, Loader2,
   FileText, Image as ImageIcon, ExternalLink, CreditCard, Calendar, Star, Building2, User, Phone, Mail, MapPin, Clock
 } from "lucide-react"
 import { adminAPI, restaurantAPI } from "@food/api"
@@ -202,6 +202,22 @@ export default function JoiningRequest() {
       } catch (err) {
         debugError("Error approving request:", err)
         alert(err.response?.data?.message || "Failed to approve request. Please try again.")
+      } finally {
+        setProcessing(false)
+      }
+    }
+  }
+
+  const handleBlock = async (request) => {
+    if (window.confirm(`Block "${request.restaurantName}" from the app? They will not be able to log in until unblocked.`)) {
+      try {
+        setProcessing(true)
+        await adminAPI.blockRestaurant(request._id)
+        await fetchRequests()
+        alert(`${request.restaurantName} has been blocked.`)
+      } catch (err) {
+        debugError("Error blocking restaurant:", err)
+        alert(err.response?.data?.message || "Failed to block restaurant. Please try again.")
       } finally {
         setProcessing(false)
       }
@@ -530,6 +546,14 @@ export default function JoiningRequest() {
                                 title="Reject"
                               >
                                 <X className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleBlock(request)}
+                                disabled={processing}
+                                className="p-1.5 rounded-full bg-amber-50 text-amber-600 hover:bg-amber-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Block"
+                              >
+                                <Ban className="w-4 h-4" />
                               </button>
                             </>
                           )}

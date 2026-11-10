@@ -371,7 +371,12 @@ export async function getGoogleRouteHighwayOptions({
     const primaryRoutes = await fetchRoutesFromGoogleRoutesApi(normalizedOrigin, normalizedDestination, {
         includeAlternatives
     });
-    const directionsRoutes = includeAlternatives
+    // Directions API is a fallback source, not a second set of alternatives to
+    // merge in alongside the primary Routes API result — the same physical
+    // route comes back with a different polyline encoding from each API, so
+    // mergeUniqueRoutes' polyline-based dedup can't recognise them as the
+    // same route, and every real route was showing up twice.
+    const directionsRoutes = includeAlternatives && (!primaryRoutes || !primaryRoutes.length)
         ? await fetchRoutesFromDirectionsApi(normalizedOrigin, normalizedDestination, { includeAlternatives: true })
         : [];
 
@@ -467,6 +472,160 @@ export async function getGoogleRouteHighway({
         name: recommendedRoute.name,
         summary: recommendedRoute.summary
     };
+}
+
+/**
+ * Destination search-as-you-type. `sessionToken` MUST be threaded through to
+ * the matching `getPlaceDetails` call for the same search — that pairing is
+ * what makes Google bill the whole autocomplete session as one cheap unit
+ * instead of charging every keystroke request individually.
+ */
+export async function autocompletePlaces(input, sessionToken) {
+    const apiKey = config.googleMapsApiKey;
+    const query = String(input || '').trim();
+    if (!apiKey || query.length < 3) {
+        return [];
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    try {
+        const params = new URLSearchParams({
+            input: query,
+            key: apiKey,
+            // India-only + "geocode" (addresses/localities/towns, not
+            // businesses) keeps results relevant to a destination search.
+            components: 'country:in',
+            types: 'geocode',
+            language: 'en'
+        });
+        if (sessionToken) params.set('sessiontoken', String(sessionToken));
+
+        const response = await fetch(
+            `https://maps.googleapis.com/maps/api/place/autocomplete/json?${params.toString()}`,
+            { signal: controller.signal }
+        );
+        const data = await response.json();
+
+        if (data.status === 'ZERO_RESULTS') return [];
+        if (data.status !== 'OK' || !Array.isArray(data.predictions)) {
+            logger.warn(`Places Autocomplete failed: ${data.status} ${data.error_message || ''}`);
+            return [];
+        }
+
+        return data.predictions
+            .map((p) => ({
+                placeId: p.place_id || '',
+                mainText: p.structured_formatting?.main_text || p.description || '',
+                secondaryText: p.structured_formatting?.secondary_text || ''
+            }))
+            .filter((p) => p.placeId);
+    } catch (error) {
+        logger.warn(`Places Autocomplete fetch failed: ${error.message}`);
+        return [];
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+/**
+ * Resolves one prediction to real coordinates. Closes out the autocomplete
+ * session started by `autocompletePlaces` — the caller should mint a fresh
+ * `sessionToken` for its next search after this.
+ */
+export async function getPlaceDetails(placeId, sessionToken) {
+    const apiKey = config.googleMapsApiKey;
+    const id = String(placeId || '').trim();
+    if (!apiKey || !id) {
+        return null;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    try {
+        const params = new URLSearchParams({
+            place_id: id,
+            key: apiKey,
+            fields: 'geometry,name,formatted_address'
+        });
+        if (sessionToken) params.set('sessiontoken', String(sessionToken));
+
+        const response = await fetch(
+            `https://maps.googleapis.com/maps/api/place/details/json?${params.toString()}`,
+            { signal: controller.signal }
+        );
+        const data = await response.json();
+        const location = data?.result?.geometry?.location;
+
+        if (data.status !== 'OK' || !location) {
+            logger.warn(`Place Details failed: ${data.status} ${data.error_message || ''}`);
+            return null;
+        }
+
+        return {
+            latitude: toFinite(location.lat),
+            longitude: toFinite(location.lng),
+            label: data.result.name || data.result.formatted_address || ''
+        };
+    } catch (error) {
+        logger.warn(`Place Details fetch failed: ${error.message}`);
+        return null;
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+/**
+ * Last-resort text -> coordinates for a destination the user typed and
+ * submitted without picking a suggestion. One request per "Start Journey"
+ * tap, same frequency as before — just server-side and India-biased instead
+ * of the old on-device geocoder, which had no region bias and depended on
+ * the phone's own (often flaky) Play Services geocoding backend.
+ */
+export async function geocodeAddress(address) {
+    const apiKey = config.googleMapsApiKey;
+    const query = String(address || '').trim();
+    if (!apiKey || !query) {
+        return null;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    try {
+        const params = new URLSearchParams({
+            address: query,
+            key: apiKey,
+            region: 'in',
+            components: 'country:IN'
+        });
+
+        const response = await fetch(
+            `https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`,
+            { signal: controller.signal }
+        );
+        const data = await response.json();
+        const result = Array.isArray(data.results) ? data.results[0] : null;
+        const location = result?.geometry?.location;
+
+        if (data.status !== 'OK' || !location) {
+            logger.warn(`Geocoding failed for "${query}": ${data.status} ${data.error_message || ''}`);
+            return null;
+        }
+
+        return {
+            latitude: toFinite(location.lat),
+            longitude: toFinite(location.lng),
+            label: result.formatted_address || query
+        };
+    } catch (error) {
+        logger.warn(`Geocoding fetch failed: ${error.message}`);
+        return null;
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
 
